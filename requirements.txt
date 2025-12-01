@@ -1,0 +1,47 @@
+# MCP RAG v2.0 - Requirements
+# Updated to resolve dependency conflicts
+
+# --- Web Framework ---
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+
+# --- Data Validation (let pip resolve compatible version) ---
+pydantic>=2.7.4
+pydantic-settings>=2.1.0
+
+# --- Utilities ---
+python-dotenv>=1.0.1
+pyyaml>=6.0.1
+requests>=2.31.0
+
+# --- Document Processing ---
+pdf2image>=1.16.3
+Pillow>=10.3.0
+python-docx>=1.1.0
+
+# --- Vector Database ---
+qdrant-client>=1.11.0
+
+# --- ML/AI Models ---
+transformers>=4.40.2
+sentence-transformers>=2.7.0
+torch>=2.0.0
+
+# --- OpenAI API ---
+openai>=1.58.1
+
+# --- LangChain Libraries ---
+langchain>=0.3.13
+langchain-core>=0.3.28
+langchain-community>=0.3.13
+langchain-openai>=0.2.14
+langchain-qdrant>=0.2.0
+langchain-huggingface>=0.1.2
+langchain-text-splitters>=0.3.4
+
+# --- Hybrid Search Dependencies ---
+fastembed>=0.3.6
+
+# --- Testing ---
+pytest>=7.0.0
+pytest-asyncio>=0.21.0python-multipart==0.0.20
