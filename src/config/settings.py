@@ -41,7 +41,7 @@ class RerankerSettings(BaseSettings):
 
 class LLMSettings(BaseSettings):
     """Large Language Model Configuration"""
-    model_name: str = Field(default="gpt-4o-mini", description="OpenAI model name")
+    model_name: str = Field(default=None, description="OpenAI model name")
     api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     base_url: Optional[str] = Field(default=None, description="Custom API base URL")
     temperature: float = Field(default=0.7, description="Sampling temperature")
