@@ -70,6 +70,15 @@ class DocumentSettings(BaseSettings):
     max_file_size_mb: int = Field(default=50, description="Maximum file size in MB")
 
 
+class DoclingSettings(BaseSettings):
+    """Docling Document Conversion Configuration"""
+    enable_ocr: bool = Field(default=True, description="Enable OCR for scanned documents")
+    table_mode: str = Field(default="fast", description="Table extraction mode: 'fast' or 'accurate'")
+    parse_tables: bool = Field(default=True, description="Extract and parse tables")
+    parse_images: bool = Field(default=True, description="Extract image descriptions")
+    generate_page_images: bool = Field(default=False, description="Generate page images")
+
+
 class ChatSettings(BaseSettings):
     """Chat Engine Configuration"""
     memory_token_limit: int = Field(default=3000, description="Token limit for chat memory")
@@ -99,6 +108,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
     document: DocumentSettings = Field(default_factory=DocumentSettings)
+    docling: DoclingSettings = Field(default_factory=DoclingSettings)
     chat: ChatSettings = Field(default_factory=ChatSettings)
     ocr: OCRSettings = Field(default_factory=OCRSettings)
     
