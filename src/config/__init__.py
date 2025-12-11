@@ -8,6 +8,7 @@ from .settings import (
     LLMSettings,
     SearchSettings,
     DocumentSettings,
+    DoclingSettings,
     ChatSettings,
     get_settings,
     reload_settings
@@ -22,6 +23,7 @@ __all__ = [
     "LLMSettings",
     "SearchSettings",
     "DocumentSettings",
+    "DoclingSettings",
     "ChatSettings",
     "get_settings",
     "reload_settings",

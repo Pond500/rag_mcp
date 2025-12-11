@@ -166,3 +166,5 @@ site/
 # Temporary uploads
 uploads/
 temp_uploads/
+
+data/

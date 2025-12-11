@@ -73,10 +73,17 @@ class DocumentSettings(BaseSettings):
 class DoclingSettings(BaseSettings):
     """Docling Document Conversion Configuration"""
     enable_ocr: bool = Field(default=True, description="Enable OCR for scanned documents")
-    table_mode: str = Field(default="fast", description="Table extraction mode: 'fast' or 'accurate'")
+    ocr_engine: str = Field(default="auto", description="OCR engine: 'auto', 'tesseract', 'easyocr', 'ocrmac'")
+    ocr_lang: str = Field(default="tha+eng", description="OCR languages (e.g., 'tha+eng' for Thai+English)")
+    table_mode: str = Field(default="accurate", description="Table extraction mode: 'fast' or 'accurate'")
     parse_tables: bool = Field(default=True, description="Extract and parse tables")
     parse_images: bool = Field(default=True, description="Extract image descriptions")
     generate_page_images: bool = Field(default=False, description="Generate page images")
+    force_ocr_on_text: bool = Field(default=False, description="Force OCR even if text layer exists")
+    image_resolution_scale: int = Field(default=2, description="Image resolution multiplier for OCR")
+    enable_vlm: bool = Field(default=False, description="Enable Vision Language Model for picture descriptions/captions")
+    clean_artifacts: bool = Field(default=True, description="Clean GLYPH tags and other PDF parsing artifacts")
+    fix_thai_encoding: bool = Field(default=True, description="Fix Thai character encoding issues")
 
 
 class ChatSettings(BaseSettings):
