@@ -368,43 +368,47 @@ class RAGService:
     def search(
         self,
         query: str,
-        kb_name: Optional[str] = None,
+        kb_name: str,
         top_k: int = 5,
-        use_routing: bool = True,
-        use_reranking: bool = True
+        use_reranking: bool = True,
+        include_metadata: bool = True,
+        deduplicate: bool = True
     ) -> Dict[str, Any]:
-        """Search for documents
+        """Search for documents and return context for agent
+        
+        Optimized for agent consumption:
+        - No semantic routing (kb_name required)
+        - Returns formatted context ready for LLM
+        - Deduplication to avoid redundant information
+        - Rich metadata for source attribution
         
         Args:
             query: Search query
-            kb_name: Target KB (if None, uses routing)
-            top_k: Number of results
-            use_routing: Whether to use semantic routing
-            use_reranking: Whether to use reranking
+            kb_name: Target KB name (REQUIRED)
+            top_k: Number of results (1-20)
+            use_reranking: Whether to use reranking for better relevance
+            include_metadata: Include source metadata (file, page, etc.)
+            deduplicate: Remove duplicate/similar content
             
         Returns:
-            {"success": bool, "results": [...], "kb_name": "..."}
+            {
+                "success": bool,
+                "kb_name": str,
+                "query": str,
+                "total_results": int,
+                "results": [
+                    {
+                        "content": str,
+                        "score": float,
+                        "rank": int,
+                        "metadata": {...}  # if include_metadata=True
+                    }
+                ],
+                "formatted_context": str,  # Ready-to-use context for agent
+                "metadata_summary": [...]   # Source files summary
+            }
         """
         try:
-            # Determine target KB
-            if kb_name is None and use_routing:
-                selected = self.router.route(query, top_k=1, score_threshold=0.0)
-                if not selected:
-                    return {
-                        "success": False,
-                        "message": "No suitable knowledge base found",
-                        "results": []
-                    }
-                kb_name = selected[0]["kb_name"]
-                logger.info("Routed query to KB: %s", kb_name)
-            
-            if kb_name is None:
-                return {
-                    "success": False,
-                    "message": "No knowledge base specified",
-                    "results": []
-                }
-            
             # Check KB exists
             if not self.collection_mgr.collection_exists(kb_name):
                 return {
@@ -422,17 +426,76 @@ class RAGService:
                 use_reranking=use_reranking
             )
             
-            logger.info("Search in %s: %d results", kb_name, len(results))
+            logger.info("Search in %s: %d results (rerank=%s, dedup=%s)", 
+                       kb_name, len(results), use_reranking, deduplicate)
+            
+            # Deduplicate if requested
+            if deduplicate and results:
+                results = self._deduplicate_results(results)
+                logger.info("After deduplication: %d results", len(results))
+            
+            # Format results for agent
+            formatted_results = []
+            sources = []
+            
+            for idx, result in enumerate(results, 1):
+                payload = result.get("payload", {})
+                content = payload.get("text", "")
+                score = result.get("score", 0.0)
+                
+                # Extract metadata
+                metadata = {}
+                if include_metadata:
+                    metadata = {
+                        "source_file": payload.get("source_file", "Unknown"),
+                        "page": payload.get("page"),
+                        "section": payload.get("section"),
+                        "chunk_id": payload.get("chunk_id"),
+                        "doc_id": payload.get("doc_id")
+                    }
+                    # Remove None values
+                    metadata = {k: v for k, v in metadata.items() if v is not None}
+                    
+                    # Track unique sources
+                    source_file = metadata.get("source_file", "Unknown")
+                    if source_file not in sources:
+                        sources.append(source_file)
+                
+                formatted_results.append({
+                    "content": content,
+                    "score": round(score, 4),
+                    "rank": idx,
+                    "metadata": metadata if include_metadata else {}
+                })
+            
+            # Create formatted context for agent
+            formatted_context = self._format_context_for_agent(formatted_results, include_metadata)
+            
+            # Create metadata summary
+            metadata_summary = []
+            if include_metadata and sources:
+                for source in sources:
+                    chunks_from_source = sum(
+                        1 for r in formatted_results 
+                        if r.get("metadata", {}).get("source_file") == source
+                    )
+                    metadata_summary.append({
+                        "source_file": source,
+                        "chunk_count": chunks_from_source
+                    })
             
             return {
                 "success": True,
-                "results": results,
                 "kb_name": kb_name,
-                "total": len(results)
+                "query": query,
+                "total_results": len(formatted_results),
+                "results": formatted_results,
+                "formatted_context": formatted_context,
+                "metadata_summary": metadata_summary
             }
             
         except Exception as e:
-            logger.error("Search failed: %s", e)
+            logger.error("Search failed: %s", e, exc_info=True)
             return {
                 "success": False,
                 "message": str(e),
@@ -525,11 +588,100 @@ class RAGService:
             
         except Exception as e:
             logger.error("Chat failed: %s", e)
-            return {
-                "success": False,
-                "message": str(e),
-                "answer": f"ขออภัย เกิดข้อผิดพลาด: {str(e)}"
-            }
+    
+    # Helper methods for search optimization
+    # ========================
+    
+    def _deduplicate_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove duplicate or highly similar content
+        
+        Uses simple text similarity to avoid redundant information.
+        Keeps higher-scored results when duplicates found.
+        
+        Args:
+            results: List of search results with scores
+            
+        Returns:
+            Deduplicated list of results
+        """
+        if not results:
+            return results
+        
+        deduplicated = []
+        seen_contents = []
+        
+        for result in results:
+            content = result.get("payload", {}).get("text", "")
+            if not content:
+                continue
+            
+            # Normalize content for comparison
+            normalized = content.lower().strip()
+            
+            # Check if similar to any seen content
+            is_duplicate = False
+            for seen in seen_contents:
+                # Simple character overlap check (>90% similarity = duplicate)
+                if len(normalized) > 0 and len(seen) > 0:
+                    overlap = len(set(normalized) & set(seen))
+                    similarity = overlap / max(len(set(normalized)), len(set(seen)))
+                    if similarity > 0.9:
+                        is_duplicate = True
+                        break
+            
+            if not is_duplicate:
+                deduplicated.append(result)
+                seen_contents.append(normalized)
+        
+        return deduplicated
+    
+    def _format_context_for_agent(
+        self,
+        results: List[Dict[str, Any]],
+        include_metadata: bool = True
+    ) -> str:
+        """Format search results into context string for agent
+        
+        Creates a well-structured context that agents can easily parse and use.
+        
+        Args:
+            results: Formatted search results
+            include_metadata: Whether to include source attribution
+            
+        Returns:
+            Formatted context string ready for agent/LLM consumption
+        """
+        if not results:
+            return "No relevant information found."
+        
+        context_parts = []
+        
+        for idx, result in enumerate(results, 1):
+            content = result.get("content", "")
+            score = result.get("score", 0.0)
+            metadata = result.get("metadata", {})
+            
+            # Build context entry
+            if include_metadata and metadata:
+                source_info = metadata.get("source_file", "Unknown")
+                page_info = f", Page {metadata['page']}" if metadata.get("page") else ""
+                section_info = f", Section: {metadata['section']}" if metadata.get("section") else ""
+                
+                header = f"[{idx}] (Source: {source_info}{page_info}{section_info}, Relevance: {score:.2f})"
+            else:
+                header = f"[{idx}] (Relevance: {score:.2f})"
+            
+            context_parts.append(f"{header}\n{content}\n")
+        
+        formatted = "\n".join(context_parts)
+        
+        # Add header
+        final_context = (
+            f"📚 Retrieved Context ({len(results)} relevant passages):\n\n"
+            f"{formatted}"
+        )
+        
+        return final_context
     
     def clear_chat_history(self, session_id: str) -> Dict[str, Any]:
         """Clear conversation history

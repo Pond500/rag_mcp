@@ -112,10 +112,11 @@ class DeleteKBRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str = Field(..., description="Search query")
-    kb_name: Optional[str] = Field(None, description="Target KB (if None, uses routing)")
-    top_k: int = Field(default=5, description="Number of results")
-    use_routing: bool = Field(default=True, description="Use semantic routing")
-    use_reranking: bool = Field(default=True, description="Use reranking")
+    kb_name: str = Field(..., description="Target KB name (REQUIRED)")
+    top_k: int = Field(default=5, ge=1, le=20, description="Number of results (1-20)")
+    use_reranking: bool = Field(default=True, description="Use reranking for better relevance")
+    include_metadata: bool = Field(default=True, description="Include source metadata (file, page, etc.)")
+    deduplicate: bool = Field(default=True, description="Remove duplicate content")
 
 
 class ChatRequest(BaseModel):
@@ -185,15 +186,42 @@ MCP_TOOLS = [
     },
     {
         "name": "search",
-        "description": "ค้นหาเอกสารด้วย Hybrid Search (Dense + Sparse + Reranking)",
+        "description": "ค้นหาเอกสารและส่ง context ให้ agent - ใช้ Hybrid Search (Dense + Sparse BM25 + RRF + Reranking) พร้อม deduplication และ metadata ครบถ้วน สำหรับให้ agent ตอบคำถามจากข้อมูลที่ได้",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "คำค้นหา"},
-                "kb_name": {"type": "string", "description": "ชื่อ KB (ถ้าไม่ระบุจะใช้ routing อัตโนมัติ)"},
-                "top_k": {"type": "integer", "description": "จำนวนผลลัพธ์", "default": 5}
+                "query": {
+                    "type": "string", 
+                    "description": "คำค้นหาหรือคำถามที่ต้องการหาข้อมูล"
+                },
+                "kb_name": {
+                    "type": "string", 
+                    "description": "ชื่อ Knowledge Base ที่ต้องการค้นหา (REQUIRED - ไม่รองรับ routing อีกต่อไป)"
+                },
+                "top_k": {
+                    "type": "integer", 
+                    "description": "จำนวนผลลัพธ์ที่ต้องการ (1-20)", 
+                    "default": 5,
+                    "minimum": 1,
+                    "maximum": 20
+                },
+                "use_reranking": {
+                    "type": "boolean",
+                    "description": "ใช้ reranking เพื่อเพิ่มความแม่นยำ (แนะนำ: True)",
+                    "default": True
+                },
+                "include_metadata": {
+                    "type": "boolean",
+                    "description": "รวม metadata (ชื่อไฟล์, หน้า, section) สำหรับอ้างอิงแหล่งที่มา",
+                    "default": True
+                },
+                "deduplicate": {
+                    "type": "boolean",
+                    "description": "ลบข้อความซ้ำซ้อน (แนะนำ: True)",
+                    "default": True
+                }
             },
-            "required": ["query"]
+            "required": ["query", "kb_name"]
         }
     },
     {
@@ -381,12 +409,21 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
         return json.dumps(result, ensure_ascii=False)
     
     elif tool_name == "search":
+        # v2.1: kb_name is required, no routing support
+        kb_name = arguments.get("kb_name")
+        if not kb_name:
+            return json.dumps({
+                "success": False,
+                "message": "kb_name is required for search (v2.1+). Use auto_routing_chat for automatic KB selection."
+            }, ensure_ascii=False)
+        
         result = service.search(
             query=arguments["query"],
-            kb_name=arguments.get("kb_name"),
+            kb_name=kb_name,
             top_k=arguments.get("top_k", 5),
-            use_routing=arguments.get("kb_name") is None,
-            use_reranking=True
+            use_reranking=arguments.get("use_reranking", True),
+            include_metadata=arguments.get("include_metadata", True),
+            deduplicate=arguments.get("deduplicate", True)
         )
         return json.dumps(result, ensure_ascii=False)
     
@@ -554,26 +591,38 @@ async def upload_document(
 
 @app.post("/tools/search", tags=["Search"])
 async def search(request: SearchRequest):
-    """Search for documents using Hybrid Search
+    """Search for documents and return context for agent
     
-    Performs Dense + Sparse BM25 search with RRF fusion and optional reranking.
-    Can use semantic routing to automatically select the best KB.
+    Optimized for agent/LLM consumption:
+    - Hybrid Search (Dense + Sparse BM25 with RRF fusion)
+    - Optional reranking for better relevance
+    - Deduplication to avoid redundant information
+    - Formatted context ready for agent to use
+    - Rich metadata for source attribution
+    
+    Returns formatted context that agent can directly use to answer questions.
     """
-    with LoggerContext(logger, "SEARCH", query=request.query[:50], kb_name=request.kb_name, top_k=request.top_k):
+    with LoggerContext(logger, "SEARCH", 
+                      query=request.query[:50], 
+                      kb_name=request.kb_name, 
+                      top_k=request.top_k,
+                      rerank=request.use_reranking,
+                      dedup=request.deduplicate):
         try:
             service = get_service()
             result = service.search(
                 query=request.query,
                 kb_name=request.kb_name,
                 top_k=request.top_k,
-                use_routing=request.use_routing,
-                use_reranking=request.use_reranking
+                use_reranking=request.use_reranking,
+                include_metadata=request.include_metadata,
+                deduplicate=request.deduplicate
             )
             
             if result["success"]:
-                kb_name = result.get("kb_name", "N/A")
-                results_count = result.get("total", 0)
-                logger.info(f"🔍 Search successful: {results_count} results from KB: {kb_name}")
+                results_count = result.get("total_results", 0)
+                sources_count = len(result.get("metadata_summary", []))
+                logger.info(f"🔍 Search successful: {results_count} results from {sources_count} sources in KB: {request.kb_name}")
                 return JSONResponse(content=result)
             else:
                 logger.warning(f"⚠️  Search failed: {result.get('message')}")
