@@ -1,6 +1,9 @@
-"""Document Processor
+"""Document Processor - Hybrid Strategy
 
-Extracts text from various file formats (PDF, DOCX, TXT) and chunks them using Docling.
+Extracts text from various file formats using a format-based router:
+- MarkItDown: Excel, PowerPoint (fast, precise numerical data)
+- Docling: PDF, Word, Images (advanced layout analysis, OCR)
+- Simple: TXT, MD (direct extraction)
 """
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Tuple
@@ -17,11 +20,17 @@ logger = logging.getLogger(__name__)
 
 
 class DocumentProcessor:
-    """Process documents: extract text and chunk using Docling
+    """Process documents using hybrid extraction strategy
+    
+    Format-Based Router:
+    - MarkItDown: .xlsx, .xls, .pptx, .ppt (optimized for Office files)
+    - Docling: .pdf, .docx, .doc, images (advanced layout + OCR)
+    - Simple: .txt, .md (plain text)
     
     Usage:
         processor = DocumentProcessor(config)
-        pages = processor.extract_text(file_path="doc.pdf")
+        pages = processor.extract_text(file_path="report.xlsx")  # Auto-routes to MarkItDown
+        pages = processor.extract_text(file_path="doc.pdf")      # Auto-routes to Docling
         chunks = processor.chunk_text(pages, chunk_size=1000, overlap=200)
     """
     
@@ -33,6 +42,9 @@ class DocumentProcessor:
         # Initialize Docling converter with lazy loading
         self._converter = None
         self._docling_config = None
+        
+        # Initialize MarkItDown converter with lazy loading
+        self._markitdown = None
         
         # Initialize utilities
         self.text_cleaner = TextCleaner()
@@ -115,12 +127,34 @@ class DocumentProcessor:
         
         return self._converter
     
+    def _get_markitdown(self):
+        """Lazy initialization of MarkItDown converter
+        
+        MarkItDown (by Microsoft) is optimized for Office files:
+        - Faster processing for Excel/PowerPoint
+        - Better handling of numerical data and formulas
+        - Preserves table structure accurately
+        
+        Returns:
+            MarkItDown instance
+        """
+        if self._markitdown is None:
+            try:
+                from markitdown import MarkItDown
+                self._markitdown = MarkItDown()
+                logger.info("Initialized MarkItDown converter for Office files")
+            except ImportError as e:
+                logger.error("MarkItDown not installed: %s", e)
+                raise ImportError("Please install markitdown: pip install markitdown")
+        
+        return self._markitdown
+    
     def _fix_thai_encoding(self, text: str) -> str:
         """
         Fix Thai character encoding issues
         
         Common issues:
-        - ด�า → ดำ (combining characters)
+        - ด�า → ดำ 
         - ส�า → สำ
         - ท�า → ทำ
         
@@ -134,7 +168,7 @@ class DocumentProcessor:
             return text
         
         try:
-            # Method 1: Try to fix by re-encoding
+            # Method 1: Try to fix by re-encoding.
             # Sometimes the text is UTF-8 decoded as Latin-1 or vice versa
             try:
                 # If text contains replacement character, try to fix
@@ -166,20 +200,20 @@ class DocumentProcessor:
             # Method 3: Fix common Thai character issues
             # Thai vowel combining characters that might appear as �
             thai_fixes = {
-                'ำ': '\u0e33',  # Sara Am
-                'ั': '\u0e31',  # Mai Han-Akat
-                'ิ': '\u0e34',  # Sara I
-                'ี': '\u0e35',  # Sara Ii
-                'ึ': '\u0e36',  # Sara Ue
-                'ื': '\u0e37',  # Sara Uee
-                'ุ': '\u0e38',  # Sara U
-                'ู': '\u0e39',  # Sara Uu
-                '็': '\u0e47',  # Maitaikhu
-                '่': '\u0e48',  # Mai Ek
-                '้': '\u0e49',  # Mai Tho
-                '๊': '\u0e4a',  # Mai Tri
-                '๋': '\u0e4b',  # Mai Chattawa
-                'ะ': '\u0e30',  # Sara A
+                'ำ': '\u0e33',  
+                'ั': '\u0e31',  
+                'ิ': '\u0e34',  
+                'ี': '\u0e35',  
+                'ึ': '\u0e36',  
+                'ื': '\u0e37',  
+                'ุ': '\u0e38',  
+                'ู': '\u0e39',  
+                '็': '\u0e47',  
+                '่': '\u0e48',  
+                '้': '\u0e49',  
+                '๊': '\u0e4a',  
+                '๋': '\u0e4b',  
+                'ะ': '\u0e30',  
             }
             
             # If we still have replacement characters, log warning
@@ -255,12 +289,12 @@ class DocumentProcessor:
         clean_text: bool = True,
         validate: bool = False
     ) -> List[str]:
-        """Extract text from file using Docling (supports PDF, DOCX, TXT, etc.)
+        """Extract text from file using hybrid strategy (MarkItDown + Docling)
         
-        Docling converts documents to high-quality Markdown format, preserving:
-        - Tables (with proper structure)
-        - Headers and formatting
-        - Lists and layout
+        Format-Based Router:
+        - Group A (MarkItDown): Excel, PowerPoint → Fast, precise numerical data
+        - Group B (Docling): PDF, Word, Images → Advanced layout analysis, OCR
+        - Group C (Simple): TXT, MD → Direct text extraction
         
         Args:
             file_path: Path to file (used for extension detection)
@@ -269,41 +303,72 @@ class DocumentProcessor:
             validate: สร้าง validation report (ใช้เวลาเพิ่มเล็กน้อย)
             
         Returns:
-            List with single Markdown string (Docling returns unified document)
+            List of extracted text sections in Markdown format
         """
         ext = Path(file_path).suffix.lower()
+        file_name = Path(file_path).name
         start_time = time.time()
         
+        logger.info(f"📄 Extracting text from: {file_name} ({ext})")
+        
         try:
-            # Handle plain text files directly (no need for Docling)
+            # Group C: Plain text files - direct extraction
             if ext in [".txt", ".md"]:
+                logger.info(f"📝 Using simple text extraction for {ext}")
                 pages = self._extract_text_simple(file_path, file_content)
-            else:
-                # Use Docling for structured documents (PDF, DOCX, etc.)
+            
+            # Group A: Office files (Excel, PowerPoint) - use MarkItDown
+            elif ext in [".xlsx", ".xls", ".pptx", ".ppt"]:
+                logger.info(f"📊 Using MarkItDown for Office file: {ext}")
+                try:
+                    pages = self._extract_with_markitdown(file_path, file_content)
+                    
+                    # Fallback to Docling if MarkItDown fails
+                    if not pages:
+                        logger.warning(f"⚠️  MarkItDown extraction empty, falling back to Docling")
+                        pages = self._extract_with_docling(file_path, file_content)
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️  MarkItDown failed ({ext}), falling back to Docling: {str(e)}")
+                    pages = self._extract_with_docling(file_path, file_content)
+            
+            # Group B: PDFs, Word docs, Images - use Docling
+            elif ext in [".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg"]:
+                logger.info(f"📑 Using Docling for document: {ext}")
                 pages = self._extract_with_docling(file_path, file_content)
+            
+            # Fallback: Unknown format - try Docling
+            else:
+                logger.info(f"❓ Unknown format {ext}, attempting Docling extraction")
+                pages = self._extract_with_docling(file_path, file_content)
+            
+            # Log extraction stats
+            extraction_time = time.time() - start_time
+            total_chars = sum(len(p) for p in pages) if pages else 0
+            logger.info(f"✅ Extracted {len(pages)} sections ({total_chars:,} chars) in {extraction_time:.2f}s")
             
             # Clean text if requested
             if clean_text and pages:
-                logger.info("Cleaning extracted text...")
+                logger.info(f"🧹 Cleaning extracted text...")
                 pages = self.text_cleaner.clean_pages(pages)
             
             # Validate if requested
             if validate and pages:
                 processing_time = time.time() - start_time
                 report = self.validator.validate(file_path, pages, processing_time)
-                logger.info(f"Validation: Quality={report.quality_score:.2f}, "
+                logger.info(f"✅ Validation: Quality={report.quality_score:.2f}, "
                           f"Recommendation={report.recommendation}")
                 
                 # Log issues if any
                 if report.issues:
                     for issue in report.issues:
                         if issue.severity in ['HIGH', 'CRITICAL']:
-                            logger.warning(f"{issue.type}: {issue.message}")
+                            logger.warning(f"⚠️  {issue.type}: {issue.message}")
             
             return pages
             
         except Exception as e:
-            logger.error("Failed to extract text from %s: %s", file_path, e)
+            logger.error(f"❌ Failed to extract text from {file_name}: {str(e)}", exc_info=True)
             return []
     
     def extract_and_validate(
@@ -380,6 +445,11 @@ class DocumentProcessor:
         Returns:
             List of text sections (one per major document section)
         """
+        file_name = Path(file_path).name
+        start_time = time.time()
+        
+        logger.debug(f"🔄 Docling: Processing {file_name}...")
+        
         try:
             converter = self._get_converter()
             
@@ -393,15 +463,16 @@ class DocumentProcessor:
                 result = converter.convert(file_path)
             
             # Try structured extraction first
+            logger.debug(f"🔄 Extracting structured sections...")
             sections = self._extract_structured_sections(result.document)
             
             # If structured extraction fails, fall back to full markdown
             if not sections or (len(sections) == 1 and len(sections[0]) < 100):
-                logger.info("Using full document markdown export as fallback")
+                logger.debug(f"🔄 Using full document markdown export as fallback")
                 full_markdown = result.document.export_to_markdown()
                 
                 if not full_markdown or len(full_markdown.strip()) < 10:
-                    logger.warning("Docling returned empty content for %s", file_path)
+                    logger.warning(f"⚠️  Docling returned empty content for {file_name}")
                     return []
                 
                 # Split large markdown into manageable sections
@@ -440,6 +511,81 @@ class DocumentProcessor:
         except Exception as e:
             logger.error("Docling extraction failed for %s: %s", file_path, e)
             return []
+    
+    def _extract_with_markitdown(self, file_path: str, file_content: Optional[bytes]) -> List[str]:
+        """Extract text using MarkItDown for Office files (Excel, PowerPoint)
+        
+        MarkItDown is optimized for structured Office documents:
+        - Excel: Preserves formulas, formatting, and numerical precision
+        - PowerPoint: Extracts slide content with proper hierarchy
+        - Fast processing without heavy ML models
+        
+        Args:
+            file_path: Path to document (used for extension detection)
+            file_content: Optional file bytes
+            
+        Returns:
+            List containing extracted markdown text
+        """
+        import tempfile
+        import os
+        
+        file_name = Path(file_path).name
+        start_time = time.time()
+        temp_file_path = None
+        
+        logger.debug(f"🔄 MarkItDown: Processing {file_name}...")
+        
+        try:
+            markitdown = self._get_markitdown()
+            
+            # MarkItDown requires a file path, so write bytes to temp file if needed
+            if file_content:
+                # Create temporary file with correct extension
+                ext = Path(file_path).suffix
+                with tempfile.NamedTemporaryFile(mode='wb', suffix=ext, delete=False) as temp_file:
+                    temp_file.write(file_content)
+                    temp_file_path = temp_file.name
+                
+                logger.debug(f"📝 Created temp file for MarkItDown: {temp_file_path}")
+                result = markitdown.convert(temp_file_path)
+            else:
+                result = markitdown.convert(file_path)
+            
+            # MarkItDown returns a result object with text_content attribute
+            markdown_text = result.text_content if hasattr(result, 'text_content') else str(result)
+            
+            if not markdown_text or len(markdown_text.strip()) < 10:
+                logger.warning(f"⚠️  MarkItDown returned empty content for {file_name}")
+                return []
+            
+            extraction_time = time.time() - start_time
+            logger.debug(f"✅ MarkItDown extracted {len(markdown_text):,} chars in {extraction_time:.2f}s")
+            
+            # Clean artifacts if configured
+            clean_artifacts = True
+            if self.config and hasattr(self.config, 'docling'):
+                clean_artifacts = getattr(self.config.docling, 'clean_artifacts', True)
+            
+            if clean_artifacts:
+                markdown_text = self._clean_markdown(markdown_text)
+            
+            logger.info("MarkItDown extracted %d chars from %s", 
+                       len(markdown_text), Path(file_path).name)
+            
+            return [markdown_text]
+            
+        except Exception as e:
+            logger.error("MarkItDown extraction failed for %s: %s", file_path, e)
+            return []
+        
+        finally:
+            # Clean up temporary file
+            if temp_file_path and os.path.exists(temp_file_path):
+                try:
+                    os.unlink(temp_file_path)
+                except Exception as e:
+                    logger.warning("Failed to delete temp file %s: %s", temp_file_path, e)
     
     def _extract_structured_sections(self, document) -> List[str]:
         """Extract document content as structured sections
@@ -633,8 +779,11 @@ class DocumentProcessor:
         Returns:
             List of chunks with metadata: [{"text": "...", "page": 1, "chunk_index": 0}, ...]
         """
+        start_time = time.time()
         chunk_size = chunk_size or self.chunk_size
         chunk_overlap = chunk_overlap or self.chunk_overlap
+        
+        logger.debug(f"🔄 Chunking {len(pages)} pages (size={chunk_size}, overlap={chunk_overlap})...")
         
         chunks = []
         chunk_index = 0
@@ -653,7 +802,9 @@ class DocumentProcessor:
                     })
                     chunk_index += 1
         
-        logger.info("Created %d chunks from %d pages", len(chunks), len(pages))
+        chunking_time = time.time() - start_time
+        avg_chunk_size = sum(len(c["text"]) for c in chunks) / len(chunks) if chunks else 0
+        logger.info(f"✂️  Created {len(chunks)} chunks (avg size: {avg_chunk_size:.0f} chars) in {chunking_time:.2f}s")
         return chunks
     
     def _chunk_markdown_text(self, text: str, chunk_size: int, chunk_overlap: int) -> List[str]:

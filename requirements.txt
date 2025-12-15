@@ -16,6 +16,7 @@ requests>=2.31.0
 
 # --- Document Processing ---
 docling>=2.0.0
+markitdown>=0.0.1a2  # Microsoft's lightweight converter for Office files
 pdf2image>=1.16.3
 Pillow>=10.3.0
 

@@ -1,4 +1,5 @@
-"""MCP Server - FastAPI Application
+"""
+MCP Server - FastAPI Application
 
 Provides Model Context Protocol (MCP) tools for Multi-KB RAG system.
 
@@ -17,6 +18,8 @@ Run: uvicorn mcp.server:app --reload
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
+import time
+import uuid
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
@@ -25,10 +28,10 @@ from pydantic import BaseModel, Field
 
 from src.config import get_settings
 from src.services import RAGService
-from src.utils import get_logger
-
-# Initialize logger
-logger = get_logger(__name__)
+from src.utils.logger import get_logger, LoggerContext, set_request_id, clear_request_id
+ 
+# Initialize logger with comprehensive settings
+logger = get_logger(__name__, log_file="mcp_server.log", enable_json=True)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -45,6 +48,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all requests with timing and request ID"""
+    request_id = str(uuid.uuid4())
+    set_request_id(request_id)
+    
+    start_time = time.time()
+    
+    # Log request start
+    logger.info(f"📨 REQUEST {request.method} {request.url.path} | Client: {request.client.host if request.client else 'unknown'}")
+    
+    try:
+        response = await call_next(request)
+        elapsed = time.time() - start_time
+        
+        # Log response
+        logger.info(f"📤 RESPONSE {response.status_code} | took {elapsed:.2f}s")
+        
+        # Add request ID to response headers
+        response.headers["X-Request-ID"] = request_id
+        
+        return response
+        
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"💥 REQUEST FAILED | took {elapsed:.2f}s | {str(e)}")
+        raise
+        
+    finally:
+        clear_request_id()
 
 # Global service instance
 _service: Optional[RAGService] = None
@@ -405,26 +441,27 @@ async def create_kb(request: CreateKBRequest):
     Creates a Qdrant collection with Hybrid Search (Dense + Sparse BM25) support
     and adds it to the master index for semantic routing.
     """
-    try:
-        service = get_service()
-        result = service.create_kb(
-            kb_name=request.kb_name,
-            description=request.description,
-            category=request.category
-        )
-        
-        if result["success"]:
-            logger.info("Created KB: %s", request.kb_name)
-            return JSONResponse(content=result, status_code=201)
-        else:
-            logger.warning("Failed to create KB: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "CREATE_KB", kb_name=request.kb_name, category=request.category):
+        try:
+            service = get_service()
+            result = service.create_kb(
+                kb_name=request.kb_name,
+                description=request.description,
+                category=request.category
+            )
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("create_kb error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            if result["success"]:
+                logger.info(f"✅ KB created successfully: {request.kb_name} | category: {request.category}")
+                return JSONResponse(content=result, status_code=201)
+            else:
+                logger.warning(f"⚠️  KB creation failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ create_kb error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/delete_kb", tags=["KB Management"])
@@ -433,22 +470,23 @@ async def delete_kb(request: DeleteKBRequest):
     
     Deletes the Qdrant collection and removes it from the master index.
     """
-    try:
-        service = get_service()
-        result = service.delete_kb(request.kb_name)
-        
-        if result["success"]:
-            logger.info("Deleted KB: %s", request.kb_name)
-            return JSONResponse(content=result)
-        else:
-            logger.warning("Failed to delete KB: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "DELETE_KB", kb_name=request.kb_name):
+        try:
+            service = get_service()
+            result = service.delete_kb(request.kb_name)
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("delete_kb error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            if result["success"]:
+                logger.info(f"🗑️  KB deleted successfully: {request.kb_name}")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  KB deletion failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ delete_kb error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/tools/list_kbs", tags=["KB Management"])
@@ -457,16 +495,18 @@ async def list_kbs():
     
     Returns information about all KBs including document counts and descriptions.
     """
-    try:
-        service = get_service()
-        result = service.list_kbs()
-        
-        logger.info("Listed %d KBs", result.get("total", 0))
-        return JSONResponse(content=result)
-        
-    except Exception as e:
-        logger.error("list_kbs error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    with LoggerContext(logger, "LIST_KBS"):
+        try:
+            service = get_service()
+            result = service.list_kbs()
+            
+            kb_count = result.get("total", 0)
+            logger.info(f"📋 Listed {kb_count} knowledge base(s)")
+            return JSONResponse(content=result)
+            
+        except Exception as e:
+            logger.error(f"❌ list_kbs error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/upload_document", tags=["Document Management"])
@@ -479,32 +519,37 @@ async def upload_document(
     Extracts text, chunks it, generates embeddings, and stores in the specified KB.
     Supports PDF, DOCX, and TXT formats.
     """
-    try:
-        service = get_service()
-        
-        # Read file content
-        file_content = await file.read()
-        
-        # Upload
-        result = service.upload_document(
-            kb_name=kb_name,
-            filename=file.filename or "untitled",
-            file_content=file_content
-        )
-        
-        if result["success"]:
-            logger.info("Uploaded document: %s to %s (%d chunks)",
-                       file.filename, kb_name, result.get("chunks_count", 0))
-            return JSONResponse(content=result, status_code=201)
-        else:
-            logger.warning("Failed to upload document: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "UPLOAD_DOCUMENT", kb_name=kb_name, filename=file.filename):
+        try:
+            service = get_service()
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("upload_document error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            # Read file content
+            file_size = 0
+            file_content = await file.read()
+            file_size = len(file_content)
+            
+            logger.info(f"📄 Uploading: {file.filename} ({file_size:,} bytes) to KB: {kb_name}")
+            
+            # Upload
+            result = service.upload_document(
+                kb_name=kb_name,
+                filename=file.filename or "untitled",
+                file_content=file_content
+            )
+            
+            if result["success"]:
+                chunks_count = result.get("chunks_count", 0)
+                logger.info(f"✅ Document uploaded successfully: {file.filename} | {chunks_count} chunks created")
+                return JSONResponse(content=result, status_code=201)
+            else:
+                logger.warning(f"⚠️  Document upload failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ upload_document error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/search", tags=["Search"])
@@ -514,29 +559,31 @@ async def search(request: SearchRequest):
     Performs Dense + Sparse BM25 search with RRF fusion and optional reranking.
     Can use semantic routing to automatically select the best KB.
     """
-    try:
-        service = get_service()
-        result = service.search(
-            query=request.query,
-            kb_name=request.kb_name,
-            top_k=request.top_k,
-            use_routing=request.use_routing,
-            use_reranking=request.use_reranking
-        )
-        
-        if result["success"]:
-            logger.info("Search in %s: %d results", 
-                       result.get("kb_name", "N/A"), result.get("total", 0))
-            return JSONResponse(content=result)
-        else:
-            logger.warning("Search failed: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "SEARCH", query=request.query[:50], kb_name=request.kb_name, top_k=request.top_k):
+        try:
+            service = get_service()
+            result = service.search(
+                query=request.query,
+                kb_name=request.kb_name,
+                top_k=request.top_k,
+                use_routing=request.use_routing,
+                use_reranking=request.use_reranking
+            )
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("search error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            if result["success"]:
+                kb_name = result.get("kb_name", "N/A")
+                results_count = result.get("total", 0)
+                logger.info(f"🔍 Search successful: {results_count} results from KB: {kb_name}")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Search failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ search error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/chat", tags=["Chat"])
@@ -546,30 +593,32 @@ async def chat(request: ChatRequest):
     Retrieves relevant context using Hybrid Search and generates an answer using LLM.
     Supports conversation history via session_id.
     """
-    try:
-        service = get_service()
-        result = service.chat(
-            query=request.query,
-            kb_name=request.kb_name,
-            session_id=request.session_id,
-            top_k=request.top_k,
-            use_routing=request.use_routing,
-            use_reranking=request.use_reranking
-        )
-        
-        if result["success"]:
-            logger.info("Chat in %s: %d chars", 
-                       result.get("kb_name", "N/A"), len(result.get("answer", "")))
-            return JSONResponse(content=result)
-        else:
-            logger.warning("Chat failed: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "CHAT", query=request.query[:50], kb_name=request.kb_name, session_id=request.session_id):
+        try:
+            service = get_service()
+            result = service.chat(
+                query=request.query,
+                kb_name=request.kb_name,
+                session_id=request.session_id,
+                top_k=request.top_k,
+                use_routing=request.use_routing,
+                use_reranking=request.use_reranking
+            )
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("chat error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            if result["success"]:
+                kb_name = result.get("kb_name", "N/A")
+                answer_length = len(result.get("answer", ""))
+                logger.info(f"💬 Chat successful: {answer_length} chars from KB: {kb_name}")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Chat failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ chat error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 class AutoRoutingChatRequest(BaseModel):
@@ -599,34 +648,38 @@ async def auto_routing_chat(request: AutoRoutingChatRequest):
     """
     import uuid as uuid_lib
     
-    try:
-        service = get_service()
-        session_id = request.session_id or str(uuid_lib.uuid4())
-        
-        result = service.chat(
-            query=request.query,
-            kb_name=None,  # Force auto-routing
-            session_id=session_id,
-            top_k=request.top_k,
-            use_routing=True,  # Always use semantic routing
-            use_reranking=True
-        )
-        
-        if result["success"]:
-            result["auto_routed"] = True
-            result["session_id"] = session_id
-            logger.info("Auto-routed chat to %s: %d chars", 
-                       result.get("kb_name", "N/A"), len(result.get("answer", "")))
-            return JSONResponse(content=result)
-        else:
-            logger.warning("Auto-routing chat failed: %s", result.get("message"))
-            raise HTTPException(status_code=400, detail=result.get("message"))
+    with LoggerContext(logger, "AUTO_ROUTING_CHAT", query=request.query[:50], session_id=request.session_id):
+        try:
+            service = get_service()
+            session_id = request.session_id or str(uuid_lib.uuid4())
             
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("auto_routing_chat error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+            logger.info(f"🎯 Auto-routing query to best KB (session: {session_id[:8]}...)")
+            
+            result = service.chat(
+                query=request.query,
+                kb_name=None,  # Force auto-routing
+                session_id=session_id,
+                top_k=request.top_k,
+                use_routing=True,  # Always use semantic routing
+                use_reranking=True
+            )
+            
+            if result["success"]:
+                result["auto_routed"] = True
+                result["session_id"] = session_id
+                kb_name = result.get("kb_name", "N/A")
+                answer_length = len(result.get("answer", ""))
+                logger.info(f"✅ Auto-routed to KB: {kb_name} | {answer_length} chars generated")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Auto-routing chat failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ auto_routing_chat error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/tools/clear_history", tags=["Chat"])
@@ -635,16 +688,17 @@ async def clear_history(request: ClearHistoryRequest):
     
     Removes all conversation turns for the specified session_id.
     """
-    try:
-        service = get_service()
-        result = service.clear_chat_history(request.session_id)
-        
-        logger.info("Cleared history for session: %s", request.session_id)
-        return JSONResponse(content=result)
-        
-    except Exception as e:
-        logger.error("clear_history error: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+    with LoggerContext(logger, "CLEAR_HISTORY", session_id=request.session_id):
+        try:
+            service = get_service()
+            result = service.clear_chat_history(request.session_id)
+            
+            logger.info(f"🗑️  Chat history cleared: {request.session_id[:8]}...")
+            return JSONResponse(content=result)
+            
+        except Exception as e:
+            logger.error(f"❌ clear_history error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/tools/health", tags=["Admin"])
@@ -653,32 +707,37 @@ async def health():
     
     Returns service health status and component status (Qdrant, embeddings).
     """
-    try:
-        service = get_service()
-        result = service.health_check()
-        
-        status_code = 200 if result["healthy"] else 503
-        return JSONResponse(content=result, status_code=status_code)
-        
-    except Exception as e:
-        logger.error("health check error: %s", e)
-        return JSONResponse(
-            content={
-                "healthy": False,
-                "error": str(e),
-                "timestamp": datetime.now().isoformat()
-            },
-            status_code=503
-        )
+    with LoggerContext(logger, "HEALTH_CHECK"):
+        try:
+            service = get_service()
+            result = service.health_check()
+            
+            status_code = 200 if result["healthy"] else 503
+            status_emoji = "✅" if result["healthy"] else "⚠️ "
+            status_text = "healthy" if result["healthy"] else "unhealthy"
+            logger.info(f"{status_emoji} Health check: {status_text}")
+            return JSONResponse(content=result, status_code=status_code)
+            
+        except Exception as e:
+            logger.error(f"❌ health check error: {str(e)}", exc_info=True)
+            return JSONResponse(
+                content={
+                    "healthy": False,
+                    "error": str(e),
+                    "timestamp": datetime.now().isoformat()
+                },
+                status_code=503
+            )
 
 
-# ========================
+# =======================
 # Root & Docs
-# ========================
+# =======================
 
 @app.get("/", tags=["Root"])
 async def root():
     """API root - returns basic info"""
+    logger.debug("🏠 Root endpoint accessed")
     return {
         "name": "Multi-KB RAG MCP Server",
         "version": "2.0.0",
@@ -704,7 +763,9 @@ async def root():
 @app.on_event("startup")
 async def startup_event():
     """Initialize service on startup"""
-    logger.info("Starting Multi-KB RAG MCP Server v2.0.0")
+    logger.info("=" * 80)
+    logger.info("🚀 Starting Multi-KB RAG MCP Server v2.0.0")
+    logger.info("=" * 80)
     
     # Warm up service (loads models)
     try:
@@ -712,18 +773,22 @@ async def startup_event():
         health = service.health_check()
         
         if health["healthy"]:
-            logger.info("Service ready - all components healthy")
+            logger.info("✅ Service ready - all components healthy")
+            for component, status in health.get("components", {}).items():
+                status_emoji = "✅" if status else "❌"
+                logger.info(f"  {status_emoji} {component}: {'OK' if status else 'FAILED'}")
         else:
-            logger.warning("Service started but some components unhealthy: %s", 
-                          health["components"])
+            logger.warning(f"⚠️  Service started but some components unhealthy: {health['components']}")
     except Exception as e:
-        logger.error("Failed to initialize service: %s", e)
+        logger.error(f"❌ Failed to initialize service: {str(e)}", exc_info=True)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    logger.info("Shutting down Multi-KB RAG MCP Server")
+    logger.info("=" * 80)
+    logger.info("🛑 Shutting down Multi-KB RAG MCP Server")
+    logger.info("=" * 80)
 
 
 # ========================

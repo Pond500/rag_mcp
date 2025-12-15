@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Docling Web Viewer - Document Extraction</title>
+    <title>Hybrid Document Processor - AI-Powered Extraction</title>
     <style>
         * {
             margin: 0;
@@ -370,16 +370,16 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>📄 Docling Web Viewer</h1>
-            <p>Upload documents and see Docling extraction in real-time</p>
+            <h1>� Hybrid Document Processor</h1>
+            <p>AI-powered extraction with MarkItDown + Docling • Excel • PowerPoint • PDF • Word</p>
         </div>
 
         <div class="upload-section">
             <div class="upload-area" id="uploadArea">
                 <div class="upload-icon">📎</div>
                 <h3>ลากไฟล์มาวางที่นี่ หรือ คลิกเพื่อเลือกไฟล์</h3>
-                <p>รองรับไฟล์: PDF, DOCX, DOC, TXT, MD</p>
-                <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.doc,.txt,.md">
+                <p>รองรับไฟล์: PDF, DOCX, DOC, XLSX, XLS, PPTX, PPT, TXT, MD</p>
+                <input type="file" id="fileInput" class="file-input" accept=".pdf,.docx,.doc,.xlsx,.xls,.pptx,.ppt,.txt,.md">
                 <button class="btn" onclick="document.getElementById('fileInput').click()">
                     เลือกไฟล์
                 </button>
@@ -387,6 +387,10 @@
                     <span class="file-type-badge">📄 PDF</span>
                     <span class="file-type-badge">📝 DOCX</span>
                     <span class="file-type-badge">📃 DOC</span>
+                    <span class="file-type-badge">📊 XLSX</span>
+                    <span class="file-type-badge">📈 XLS</span>
+                    <span class="file-type-badge">📽️ PPTX</span>
+                    <span class="file-type-badge">📊 PPT</span>
                     <span class="file-type-badge">📋 TXT</span>
                     <span class="file-type-badge">📑 MD</span>
                 </div>

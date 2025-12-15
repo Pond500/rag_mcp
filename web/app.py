@@ -1,6 +1,11 @@
 """
-Docling Web Viewer - Web interface for document extraction
-Upload documents and view Docling extraction results in real-time
+Hybrid Document Processing Web Viewer
+Upload documents and view extraction results in real-time
+
+Supports:
+- PDF, Word (.pdf, .docx, .doc) → Docling
+- Excel, PowerPoint (.xlsx, .xls, .pptx, .ppt) → MarkItDown → Docling fallback
+- Plain text (.txt, .md) → Simple extraction
 """
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
@@ -30,8 +35,13 @@ app.config['OUTPUT_FOLDER'] = Path(__file__).parent.parent / 'output'
 app.config['UPLOAD_FOLDER'].mkdir(exist_ok=True)
 app.config['OUTPUT_FOLDER'].mkdir(exist_ok=True)
 
-# Allowed file extensions
-ALLOWED_EXTENSIONS = {'pdf', 'docx', 'doc', 'txt', 'md'}
+# Allowed file extensions (Hybrid Processing: MarkItDown + Docling)
+ALLOWED_EXTENSIONS = {
+    'pdf', 'docx', 'doc',     # Documents (Docling)
+    'xlsx', 'xls',            # Excel (MarkItDown → Docling fallback)
+    'pptx', 'ppt',            # PowerPoint (MarkItDown → Docling fallback)
+    'txt', 'md'               # Plain text (Simple)
+}
 
 # Initialize processor
 settings = Settings()
