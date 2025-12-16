@@ -113,23 +113,24 @@ def upload_file():
         combined_text = '\n\n'.join(sections)
         glyph_count = combined_text.count('GLYPH')
         
-        # Prepare response
+        # Prepare response (now showing pages instead of sections)
         result = {
             'success': True,
             'filename': filename,
             'stats': {
-                'sections': len(sections),
+                'pages': len(sections),  # Changed from 'sections' to 'pages'
                 'total_chars': total_chars,
-                'avg_section_size': total_chars // len(sections) if sections else 0,
+                'avg_page_size': total_chars // len(sections) if sections else 0,
                 'headers': total_headers,
                 'tables': total_tables,
                 'paragraphs': total_paragraphs,
                 'glyph_artifacts': glyph_count,
                 'processing_time': round(processing_time, 2)
             },
-            'sections': [
+            'pages': [  # Changed from 'sections' to 'pages'
                 {
                     'id': i,
+                    'page_no': i,  # Add explicit page number
                     'content': section,
                     'length': len(section),
                     'preview': section[:200] + ('...' if len(section) > 200 else '')

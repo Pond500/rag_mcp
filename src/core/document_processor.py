@@ -15,6 +15,9 @@ from io import BytesIO
 
 from src.utils.text_cleaner import TextCleaner
 from src.utils.document_validator import DocumentValidator, ValidationReport
+from docling.datamodel.base_models import InputFormat
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractOcrOptions
 
 logger = logging.getLogger(__name__)
 
@@ -51,69 +54,71 @@ class DocumentProcessor:
         self.validator = DocumentValidator()
     
     def _get_converter(self):
-        """Lazy initialization of Docling converter with advanced settings"""
+        """Lazy initialization of Docling converter with advanced settings (Fixed for Thai OCR)"""
         if self._converter is None:
             try:
+                import os
+                # 1. ระบุ Path ของ Tesseract (Homebrew M1/M2/M3) สำคัญมาก!
+                os.environ["TESSDATA_PREFIX"] = "/opt/homebrew/share/tessdata"
+
+                # Import ที่จำเป็น
+                from docling.datamodel.base_models import InputFormat
                 from docling.document_converter import DocumentConverter, PdfFormatOption
                 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode, TesseractOcrOptions
                 
-                # Get Docling settings from config
+                # Default settings
                 enable_ocr = True
-                ocr_engine = "auto"
-                ocr_lang = "tha+eng"
                 table_mode = "accurate"
                 enable_vlm = False
+                img_scale = 2.0
                 
+                # พยายามอ่านจาก Config (ถ้ามี) แต่จะเน้น Default ที่เราตั้งข้างล่างเพื่อความชัวร์
                 if self.config and hasattr(self.config, 'docling'):
                     enable_ocr = getattr(self.config.docling, 'enable_ocr', True)
-                    ocr_engine = getattr(self.config.docling, 'ocr_engine', 'auto')
-                    ocr_lang = getattr(self.config.docling, 'ocr_lang', 'tha+eng')
+                    # เราจะข้าม ocr_engine จาก config ไปก่อน เพื่อบังคับใช้ Tesseract แก้ปัญหา
                     table_mode = getattr(self.config.docling, 'table_mode', 'accurate')
                     enable_vlm = getattr(self.config.docling, 'enable_vlm', False)
-                
+                    img_scale = getattr(self.config.docling, 'image_resolution_scale', 2.0)
+
                 # Configure PDF pipeline options
                 pipeline_options = PdfPipelineOptions()
-                
-                # Set table extraction mode
-                if table_mode == "accurate":
-                    pipeline_options.do_table_structure = True
-                    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
-                else:
-                    pipeline_options.do_table_structure = True
-                    pipeline_options.table_structure_options.mode = TableFormerMode.FAST
-                
-                # Enable OCR with language support
+                pipeline_options.images_scale = img_scale
                 pipeline_options.do_ocr = enable_ocr
                 
-                # Configure OCR engine for Thai language
-                if enable_ocr and ocr_engine == "tesseract":
+                # Set table extraction mode
+                pipeline_options.do_table_structure = True
+                if table_mode == "accurate":
+                    pipeline_options.table_structure_options.mode = TableFormerMode.ACCURATE
+                    pipeline_options.table_structure_options.do_cell_matching = True # ช่วยจับคู่ Text ลงตารางให้แม่นขึ้น
+                else:
+                    pipeline_options.table_structure_options.mode = TableFormerMode.FAST
+                
+                # 2. Configure OCR engine (บังคับใช้ Tesseract สำหรับภาษาไทย)
+                if enable_ocr:
                     try:
-                        # Use Tesseract with Thai language support
-                        # Convert "tha+eng" string to ["tha", "eng"] list
-                        lang_list = ocr_lang.split('+') if '+' in ocr_lang else [ocr_lang]
+                        # กำหนดภาษา: ไทย + อังกฤษ
+                        lang_list = ["tha", "eng"]
+                        
                         pipeline_options.ocr_options = TesseractOcrOptions(
-                            lang=lang_list  # Must be a list: ["tha", "eng"]
+                            lang=lang_list
                         )
                         logger.info(f"Configured Tesseract OCR with languages: {lang_list}")
                     except Exception as e:
-                        logger.warning(f"Failed to configure Tesseract OCR: {e}, using default")
-                elif enable_ocr:
-                    logger.info(f"Using {ocr_engine} OCR engine")
-                
+                        logger.warning(f"Failed to configure Tesseract OCR: {e}")
+
                 # Enable VLM for picture descriptions if configured
                 if enable_vlm:
                     pipeline_options.generate_picture_images = True
                     logger.info("VLM enabled for picture descriptions")
                 
-                # Initialize converter with options
+                # 3. Initialize converter (แก้ไข Syntax ตรงนี้ให้ถูกต้อง)
                 self._converter = DocumentConverter(
                     format_options={
-                        PdfFormatOption: pipeline_options
+                        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
                     }
                 )
                 
-                logger.info("Initialized Docling converter (OCR=%s, table_mode=%s, VLM=%s)", 
-                           enable_ocr, table_mode, enable_vlm)
+                logger.info("Initialized Docling converter (Engine=Tesseract, TableMode=%s)", table_mode)
                 
             except ImportError as e:
                 logger.error("Docling not installed: %s", e)
@@ -443,7 +448,7 @@ class DocumentProcessor:
             file_content: Optional file bytes
             
         Returns:
-            List of text sections (one per major document section)
+            List of text sections (one per major document section OR per page)
         """
         file_name = Path(file_path).name
         start_time = time.time()
@@ -462,9 +467,9 @@ class DocumentProcessor:
             else:
                 result = converter.convert(file_path)
             
-            # Try structured extraction first
-            logger.debug(f"🔄 Extracting structured sections...")
-            sections = self._extract_structured_sections(result.document)
+            # Try page-based extraction first (better for verification)
+            logger.debug(f"🔄 Extracting by pages...")
+            sections = self._extract_by_pages(result.document)
             
             # If structured extraction fails, fall back to full markdown
             if not sections or (len(sections) == 1 and len(sections[0]) < 100):
@@ -587,8 +592,83 @@ class DocumentProcessor:
                 except Exception as e:
                     logger.warning("Failed to delete temp file %s: %s", temp_file_path, e)
     
+    def _extract_by_pages(self, document) -> List[str]:
+        """Extract document content by pages (for easier verification)
+        
+        This method groups content by page number, making it easier to:
+        - Verify extraction quality page by page
+        - Debug specific pages with issues
+        - Compare with original document
+        
+        Args:
+            document: Docling Document object
+            
+        Returns:
+            List of page texts (Markdown format), one string per page
+        """
+        try:
+            from docling_core.types.doc import DocItemLabel
+            
+            # Dictionary to store content by page
+            pages_dict = {}
+            
+            # Iterate through document items
+            for item, level in document.iterate_items():
+                # Get page number
+                page_no = getattr(item.prov[0], 'page_no', 0) if hasattr(item, 'prov') and item.prov else 0
+                
+                # Initialize page if not exists
+                if page_no not in pages_dict:
+                    pages_dict[page_no] = []
+                
+                # Get text from item
+                item_text = None
+                try:
+                    if hasattr(item, 'export_to_markdown'):
+                        try:
+                            item_text = item.export_to_markdown(doc=document).strip()
+                        except TypeError:
+                            item_text = item.export_to_markdown().strip()
+                    elif hasattr(item, 'text'):
+                        item_text = str(item.text).strip()
+                        # Add markdown formatting based on label
+                        item_label = getattr(item, 'label', None)
+                        if item_label in [DocItemLabel.TITLE, DocItemLabel.SECTION_HEADER]:
+                            header_level = min(level + 1, 6)
+                            item_text = f"{'#' * header_level} {item_text}"
+                except Exception as e:
+                    logger.debug(f"Error exporting item: {e}")
+                    continue
+                
+                if item_text:
+                    pages_dict[page_no].append(item_text)
+            
+            # Convert dictionary to sorted list of pages
+            if not pages_dict:
+                logger.warning("No pages extracted, falling back to full document")
+                return [document.export_to_markdown()]
+            
+            # Sort by page number and join content
+            pages = []
+            for page_no in sorted(pages_dict.keys()):
+                page_content = '\n\n'.join(pages_dict[page_no])
+                if page_content.strip():
+                    # Add page header for easy identification
+                    page_text = f"## Page {page_no}\n\n{page_content}"
+                    pages.append(page_text)
+            
+            logger.info(f"✅ Extracted {len(pages)} pages")
+            return pages
+            
+        except ImportError:
+            logger.warning("Docling core types not available, falling back to full document")
+            return [document.export_to_markdown()]
+        except Exception as e:
+            logger.warning(f"Page extraction failed, falling back to full document: {e}")
+            return [document.export_to_markdown()]
+    
     def _extract_structured_sections(self, document) -> List[str]:
-        """Extract document content as structured sections
+        """Extract document content as structured sections (by headers)
         
         This method processes the Docling document model to create semantic sections:
         - Groups content by headers (creates natural boundaries)

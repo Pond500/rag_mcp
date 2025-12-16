@@ -407,7 +407,7 @@
             <div class="stats-grid" id="statsGrid"></div>
             <div class="sections-container">
                 <div class="section-header">
-                    <h2>📑 Extracted Sections</h2>
+                    <h2>� Extracted Pages</h2>
                     <button class="btn expand-all-btn" onclick="toggleAllSections()">
                         Expand All
                     </button>
@@ -491,12 +491,12 @@
         }
 
         function displayResults(data) {
-            // Display stats
+            // Display stats (updated for pages)
             const statsHtml = `
                 <div class="stat-card">
-                    <div class="stat-icon">📊</div>
-                    <div class="stat-value">${data.stats.sections}</div>
-                    <div class="stat-label">Sections</div>
+                    <div class="stat-icon">�</div>
+                    <div class="stat-value">${data.stats.pages}</div>
+                    <div class="stat-label">Pages</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">📑</div>
@@ -540,15 +540,15 @@
                 statsGrid.innerHTML = statsHtml;
             }
 
-            // Display sections
-            const sectionsHtml = data.sections.map(section => `
+            // Display pages (updated to show page numbers)
+            const sectionsHtml = data.pages.map(page => `
                 <div class="section-item">
-                    <div class="section-title" onclick="toggleSection(${section.id})">
-                        <h3>📄 Section ${section.id}</h3>
-                        <span class="section-badge">${section.length} chars</span>
+                    <div class="section-title" onclick="toggleSection(${page.id})">
+                        <h3>📄 Page ${page.page_no}</h3>
+                        <span class="section-badge">${page.length.toLocaleString()} chars</span>
                     </div>
-                    <div class="section-content" id="section-${section.id}">
-                        <div class="section-text">${escapeHtml(section.content)}</div>
+                    <div class="section-content" id="section-${page.id}">
+                        <div class="section-text">${escapeHtml(page.content)}</div>
                     </div>
                 </div>
             `).join('');
