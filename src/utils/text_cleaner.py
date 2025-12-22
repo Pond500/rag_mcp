@@ -95,12 +95,14 @@ class TextCleaner:
         cleaned_lines = []
         
         for line in lines:
-            # Skip empty table rows
-            if line.strip() in ['|', '| |', '||']:
+            stripped = line.strip()
+            
+            # Skip ONLY truly empty table rows (no content)
+            if stripped in ['|', '| |', '||', '|||']:
                 continue
             
-            # แก้ไข table rows ที่มี pipe เดี่ยว
-            if '|' in line and len(line.strip()) < 3:
+            # Skip lines with ONLY pipes and spaces (broken table structure)
+            if stripped and all(c in '| ' for c in stripped) and len(stripped) < 5:
                 continue
                 
             cleaned_lines.append(line)
@@ -206,6 +208,7 @@ class TextCleaner:
     def clean_pages(
         cls,
         pages: List[str],
+        min_chars: int = 3,  # Keep pages with at least 3 chars (very permissive)
         **kwargs
     ) -> List[str]:
         """
@@ -213,16 +216,24 @@ class TextCleaner:
         
         Args:
             pages: List ของข้อความแต่ละหน้า
+            min_chars: จำนวนตัวอักษรขั้นต่ำเพื่อเก็บ page (default: 3)
             **kwargs: Arguments สำหรับ clean_text()
             
         Returns:
             List ของข้อความที่สะอาดแล้ว
         """
         cleaned = []
-        for page in pages:
+        for i, page in enumerate(pages):
             cleaned_page = cls.clean_text(page, **kwargs)
-            if cleaned_page:  # เก็บเฉพาะที่มีเนื้อหา
+            # เก็บ page ที่มีเนื้อหาอย่างน้อย min_chars ตัวอักษร
+            if cleaned_page and len(cleaned_page.strip()) >= min_chars:
                 cleaned.append(cleaned_page)
+            else:
+                # Log ว่าทำไมถึง skip
+                if not cleaned_page:
+                    logger.warning(f"⚠️  Page {i+1}: Empty after cleaning (original: {len(page)} chars)")
+                else:
+                    logger.warning(f"⚠️  Page {i+1}: Too short after cleaning ({len(cleaned_page)} chars < {min_chars})")
         
         return cleaned
 

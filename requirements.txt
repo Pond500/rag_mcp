@@ -20,6 +20,13 @@ markitdown>=0.0.1a2  # Microsoft's lightweight converter for Office files
 pdf2image>=1.16.3
 Pillow>=10.3.0
 
+# --- VLM APIs ---
+# google-generativeai>=0.3.0  # OLD: Removed due to quota issues
+# Using OpenRouter instead - multi-model support, pay-as-you-go, no quota limits
+
+# --- Web Framework (for web UI) ---
+flask>=3.0.0
+
 # --- Vector Database ---
 qdrant-client>=1.11.0
 

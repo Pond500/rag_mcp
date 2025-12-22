@@ -37,8 +37,9 @@ class DocumentProcessor:
         chunks = processor.chunk_text(pages, chunk_size=1000, overlap=200)
     """
     
-    def __init__(self, config=None):
+    def __init__(self, config=None, enable_ocr: bool = False):
         self.config = config
+        self.enable_ocr = enable_ocr  # Control Tesseract OCR (default: OFF)
         self.chunk_size = getattr(config, "chunk_size", 1000) if config else 1000
         self.chunk_overlap = getattr(config, "chunk_overlap", 200) if config else 200
         
@@ -67,15 +68,14 @@ class DocumentProcessor:
                 from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode, TesseractOcrOptions
                 
                 # Default settings
-                enable_ocr = True
+                # Use instance setting (default: OCR disabled)
+                enable_ocr = self.enable_ocr
                 table_mode = "accurate"
                 enable_vlm = False
                 img_scale = 2.0
                 
-                # พยายามอ่านจาก Config (ถ้ามี) แต่จะเน้น Default ที่เราตั้งข้างล่างเพื่อความชัวร์
+                # Override with config if available
                 if self.config and hasattr(self.config, 'docling'):
-                    enable_ocr = getattr(self.config.docling, 'enable_ocr', True)
-                    # เราจะข้าม ocr_engine จาก config ไปก่อน เพื่อบังคับใช้ Tesseract แก้ปัญหา
                     table_mode = getattr(self.config.docling, 'table_mode', 'accurate')
                     enable_vlm = getattr(self.config.docling, 'enable_vlm', False)
                     img_scale = getattr(self.config.docling, 'image_resolution_scale', 2.0)
@@ -93,6 +93,9 @@ class DocumentProcessor:
                 else:
                     pipeline_options.table_structure_options.mode = TableFormerMode.FAST
                 
+                # Disable picture images (we only need text, not base64 encoded images in markdown)
+                pipeline_options.generate_picture_images = False
+                
                 # 2. Configure OCR engine (บังคับใช้ Tesseract สำหรับภาษาไทย)
                 if enable_ocr:
                     try:
@@ -100,9 +103,10 @@ class DocumentProcessor:
                         lang_list = ["tha", "eng"]
                         
                         pipeline_options.ocr_options = TesseractOcrOptions(
-                            lang=lang_list
+                            lang=lang_list,
+                            force_full_page_ocr=False  # ปิด OSD เพื่อหลีกเลี่ยง "OSD failed" errors
                         )
-                        logger.info(f"Configured Tesseract OCR with languages: {lang_list}")
+                        logger.info(f"Configured Tesseract OCR with languages: {lang_list} (OSD disabled)")
                     except Exception as e:
                         logger.warning(f"Failed to configure Tesseract OCR: {e}")
 
@@ -118,7 +122,8 @@ class DocumentProcessor:
                     }
                 )
                 
-                logger.info("Initialized Docling converter (Engine=Tesseract, TableMode=%s)", table_mode)
+                ocr_status = "ON (Tesseract)" if enable_ocr else "OFF"
+                logger.info("Initialized Docling converter (OCR=%s, TableMode=%s)", ocr_status, table_mode)
                 
             except ImportError as e:
                 logger.error("Docling not installed: %s", e)
@@ -237,6 +242,8 @@ class DocumentProcessor:
         
         This method removes:
         - GLYPH tags (e.g., GLYPH<29>, GLYPH&lt;19&gt;)
+        - Base64 encoded images
+        - HTML comments (image placeholders)
         - Excessive newlines (3+ consecutive newlines)
         - Lines with only dots (Table of Contents artifacts)
         - Redundant whitespace
@@ -249,6 +256,12 @@ class DocumentProcessor:
         """
         if not text:
             return text
+        
+        # Remove base64 encoded images (![Image](data:image/...base64,...))
+        text = re.sub(r'!\[Image\]\(data:image/[^)]+\)', '', text)
+        
+        # Remove HTML comments (<!-- ... -->)
+        text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
         
         # Remove GLYPH tags and variants
         # Patterns: GLYPH<29>, GLYPH&lt;19&gt;, GLYPH<c=29,font=...>
@@ -354,8 +367,14 @@ class DocumentProcessor:
             
             # Clean text if requested
             if clean_text and pages:
-                logger.info(f"🧹 Cleaning extracted text...")
-                pages = self.text_cleaner.clean_pages(pages)
+                logger.info(f"🧹 Cleaning extracted text... ({len(pages)} pages before cleaning)")
+                pages_before = len(pages)
+                chars_before = sum(len(p) for p in pages)
+                
+                # Clean with markdown artifact removal enabled
+                pages = self.text_cleaner.clean_pages(pages, clean_markdown=True)
+                
+                logger.info(f"🧹 Cleaning result: {pages_before} → {len(pages)} pages, {chars_before} → {sum(len(p) for p in pages)} chars")
             
             # Validate if requested
             if validate and pages:
@@ -467,21 +486,59 @@ class DocumentProcessor:
             else:
                 result = converter.convert(file_path)
             
-            # Try page-based extraction first (better for verification)
-            logger.debug(f"🔄 Extracting by pages...")
-            sections = self._extract_by_pages(result.document)
+            # Try structured section extraction first (preserves content better)
+            logger.debug(f"🔄 Extracting structured sections...")
+            sections = self._extract_structured_sections(result.document)
             
-            # If structured extraction fails, fall back to full markdown
-            if not sections or (len(sections) == 1 and len(sections[0]) < 100):
-                logger.debug(f"🔄 Using full document markdown export as fallback")
+            # If structured extraction fails or returns too few sections, fall back to full markdown
+            total_chars = sum(len(s) for s in sections)
+            avg_chars_per_section = total_chars / len(sections) if sections else 0
+            
+            # Fallback conditions:
+            # 1. No sections extracted
+            # 2. All sections are very short (< 50 chars each)
+            # 3. Average section length suggests incomplete extraction (< 200 chars for multi-page docs)
+            # 4. Content is only HTML comments (image placeholders)
+            # 5. Content contains base64 encoded images
+            has_only_comments = all(
+                s.strip().startswith('<!--') and '🖼️❌' in s 
+                for s in sections if s.strip()
+            )
+            has_base64_images = any(
+                'data:image/' in s and 'base64,' in s
+                for s in sections
+            )
+            should_fallback = (
+                not sections or 
+                all(len(s.strip()) < 50 for s in sections) or
+                (len(sections) < 3 and avg_chars_per_section < 500) or  # Too few sections with little content
+                has_only_comments or  # Only image placeholder comments
+                has_base64_images  # Contains base64 encoded images
+            )
+            
+            if should_fallback:
+                logger.warning(f"⚠️  Structured extraction incomplete ({len(sections)} sections, {total_chars} chars). Using full markdown.")
                 full_markdown = result.document.export_to_markdown()
                 
+                # Debug: show what's in full markdown
+                logger.info(f"📝 Full markdown preview (first 500 chars):\n{full_markdown[:500]}")
+                
+                # Check if full markdown is also just comments/empty
                 if not full_markdown or len(full_markdown.strip()) < 10:
-                    logger.warning(f"⚠️  Docling returned empty content for {file_name}")
+                    logger.error(f"⚠️  Docling returned empty content for {file_name}")
+                    logger.error(f"💡 This PDF may be image-based (no text layer). Consider using VLM extraction.")
                     return []
                 
-                # Split large markdown into manageable sections
-                sections = [full_markdown]
+                # Check if full markdown is only HTML comments
+                full_markdown_clean = re.sub(r'<!--.*?-->', '', full_markdown, flags=re.DOTALL).strip()
+                if len(full_markdown_clean) < 50:
+                    logger.error(f"⚠️  Full markdown contains only HTML comments ({len(full_markdown_clean)} chars after cleaning)")
+                    logger.error(f"💡 This PDF is image-based (no text layer). Use VLM extraction or enable OCR.")
+                    return []
+                
+                logger.info(f"📄 Using full markdown: {len(full_markdown)} chars")
+                # Split large markdown into manageable sections (by page or size)
+                sections = self._split_by_size(full_markdown, max_size=10000)
             
             # Fix Thai encoding issues if configured
             fix_thai = True
@@ -816,6 +873,47 @@ class DocumentProcessor:
             subsections.append('\n\n'.join(current_subsection))
         
         return subsections
+    
+    def _split_by_size(self, text: str, max_size: int = 10000) -> List[str]:
+        """Split large text into chunks by size while preserving paragraphs
+        
+        Args:
+            text: Full markdown text
+            max_size: Maximum size per chunk
+            
+        Returns:
+            List of text chunks
+        """
+        if len(text) <= max_size:
+            return [text]
+        
+        # Split by double newlines (paragraphs)
+        paragraphs = text.split('\n\n')
+        chunks = []
+        current_chunk = []
+        current_size = 0
+        
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            
+            para_size = len(para)
+            
+            # If adding this paragraph exceeds max_size, start new chunk
+            if current_size + para_size > max_size and current_chunk:
+                chunks.append('\n\n'.join(current_chunk))
+                current_chunk = [para]
+                current_size = para_size
+            else:
+                current_chunk.append(para)
+                current_size += para_size + 2  # +2 for \n\n
+        
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append('\n\n'.join(current_chunk))
+        
+        return chunks
     
     def _extract_text_simple(self, file_path: str, file_content: Optional[bytes]) -> List[str]:
         """Extract text from plain text files (TXT/MD)

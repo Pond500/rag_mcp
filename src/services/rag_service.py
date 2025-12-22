@@ -24,6 +24,7 @@ from src.core import (
     Router,
     ChatEngine
 )
+from src.core.progressive_processor import ProgressiveDocumentProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,18 @@ class RAGService:
         
         # Core modules
         self.collection_mgr = CollectionManager(qdrant_client, config)
-        self.doc_processor = DocumentProcessor(config.document)
+        
+        # Use ProgressiveDocumentProcessor if OpenRouter is configured, otherwise fallback to basic DocumentProcessor
+        if config.openrouter.use_progressive and config.openrouter.api_key:
+            logger.info("Using ProgressiveDocumentProcessor with OpenRouter")
+            self.doc_processor = ProgressiveDocumentProcessor(
+                openrouter_api_key=config.openrouter.api_key,
+                target_quality=config.openrouter.target_quality
+            )
+        else:
+            logger.info("Using basic DocumentProcessor")
+            self.doc_processor = DocumentProcessor(config.document)
+        
         self.metadata_extractor = MetadataExtractor(llm_client, config.chat.system_prompt)
         self.vector_store = VectorStore(qdrant_client, embedding_manager)
         
@@ -287,16 +299,39 @@ class RAGService:
                     "message": f"Knowledge base '{kb_name}' not found"
                 }
             
-            # Extract text
-            pages = self.doc_processor.extract_text(filename, file_content)
+            # Extract text (handle both Progressive and basic processors)
+            extraction_metadata = {}
+            if isinstance(self.doc_processor, ProgressiveDocumentProcessor):
+                # Use progressive extraction
+                result = self.doc_processor.extract_with_smart_routing(
+                    pdf_bytes=file_content,
+                    target_quality=self.config.openrouter.target_quality
+                )
+                if not result.success:
+                    return {
+                        "success": False,
+                        "message": f"Failed to extract text: {result.error}"
+                    }
+                pages = result.pages
+                extraction_metadata = {
+                    "tier_used": result.tier_used,
+                    "tier_attempted": result.tier_attempted,
+                    "quality_score": result.quality_score,
+                    "extraction_cost": result.cost,
+                    "extraction_time": result.extraction_time
+                }
+                logger.info("Progressive extraction: %d pages, tier=%s, quality=%.2f, cost=$%.4f",
+                          len(pages), result.tier_used, result.quality_score, result.cost)
+            else:
+                # Use basic extraction
+                pages = self.doc_processor.extract_text(filename, file_content)
+                logger.info("Basic extraction: %d pages from %s", len(pages), filename)
             
             if not pages:
                 return {
                     "success": False,
                     "message": "Failed to extract text from document"
                 }
-            
-            logger.info("Extracted %d pages from %s", len(pages), filename)
             
             # Chunk text
             chunks = self.doc_processor.chunk_text(pages)
@@ -318,6 +353,7 @@ class RAGService:
                 "kb_name": kb_name,
                 "filename": filename,
                 "upload_date": datetime.now().isoformat(),
+                **extraction_metadata,  # Include progressive extraction metadata
                 **(metadata or {})
             }
             

@@ -100,6 +100,18 @@ class OCRSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OCR_")
 
 
+class OpenRouterSettings(BaseSettings):
+    """OpenRouter API Configuration for Progressive Document Processing"""
+    api_key: Optional[str] = Field(default=None, description="OpenRouter API key")
+    use_progressive: bool = Field(default=True, description="Use progressive document processor")
+    target_quality: float = Field(default=0.70, description="Target quality threshold (0.0-1.0)")
+    fast_threshold: float = Field(default=0.70, description="Fast tier quality threshold")
+    balanced_threshold: float = Field(default=0.80, description="Balanced tier quality threshold")
+    premium_threshold: float = Field(default=0.85, description="Premium tier quality threshold")
+    
+    model_config = SettingsConfigDict(env_prefix="OPENROUTER_")
+
+
 class Settings(BaseSettings):
     """Main Application Settings"""
     # Environment
@@ -118,6 +130,7 @@ class Settings(BaseSettings):
     docling: DoclingSettings = Field(default_factory=DoclingSettings)
     chat: ChatSettings = Field(default_factory=ChatSettings)
     ocr: OCRSettings = Field(default_factory=OCRSettings)
+    openrouter: OpenRouterSettings = Field(default_factory=OpenRouterSettings)
     
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -132,6 +145,9 @@ class Settings(BaseSettings):
         # Auto-load LLM API key from environment if not set
         if not self.llm.api_key:
             self.llm.api_key = os.getenv("OPENAI_API_KEY")
+        # Auto-load OpenRouter API key from environment if not set
+        if not self.openrouter.api_key:
+            self.openrouter.api_key = os.getenv("OPENROUTER_API_KEY")
 
 
 # Singleton instance

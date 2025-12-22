@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hybrid Document Processor - AI-Powered Extraction</title>
+    <title>Progressive Document Processor - AI-Powered Quality Extraction</title>
     <style>
         * {
             margin: 0;
@@ -327,6 +327,171 @@
             border-left: 4px solid #dc2626;
         }
 
+        /* Enhanced Extraction Controls */
+        .extraction-controls {
+            margin-top: 30px;
+            padding: 25px;
+            background: #f8fafc;
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .control-section {
+            margin-bottom: 20px;
+        }
+
+        .control-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .control-label {
+            display: block;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 10px;
+            font-size: 1.05em;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .checkbox-group:hover {
+            background: #f1f5f9;
+            transform: translateX(5px);
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 22px;
+            height: 22px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .checkbox-group label {
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .checkbox-help {
+            display: block;
+            font-size: 0.9em;
+            color: #64748b;
+            margin-top: 5px;
+        }
+
+        .radio-group {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .radio-option {
+            flex: 1;
+            min-width: 150px;
+        }
+
+        .radio-option input[type="radio"] {
+            display: none;
+        }
+
+        .radio-option label {
+            display: block;
+            padding: 15px 20px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .radio-option input[type="radio"]:checked + label {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .radio-option label:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .radio-option .option-title {
+            font-weight: 600;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .radio-option .option-desc {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+
+        .tier-selector {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+
+        .tier-option {
+            padding: 15px;
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .tier-option:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .tier-option.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .tier-icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .tier-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .tier-cost {
+            font-size: 0.85em;
+            opacity: 0.8;
+        }
+
+        .cost-estimate {
+            margin-top: 20px;
+            padding: 15px;
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            border-radius: 8px;
+        }
+
+        .cost-estimate strong {
+            color: #92400e;
+        }
+
         @keyframes fadeInDown {
             from {
                 opacity: 0;
@@ -370,8 +535,8 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>� Hybrid Document Processor</h1>
-            <p>AI-powered extraction with MarkItDown + Docling • Excel • PowerPoint • PDF • Word</p>
+            <h1>🚀 Enhanced Progressive Document Processor</h1>
+            <p>AI-powered 3-Tier Extraction • Visual Pre-Assessment • Smart Cost Optimization • Budget-Aware Routing</p>
         </div>
 
         <div class="upload-section">
@@ -383,6 +548,152 @@
                 <button class="btn" onclick="document.getElementById('fileInput').click()">
                     เลือกไฟล์
                 </button>
+                
+                <!-- Enhanced Extraction Controls -->
+                <div class="extraction-controls">
+                    <h4 style="margin-bottom: 15px; color: #1e293b; font-size: 1.2em;">⚙️ โหมดการสกัดเนื้อหา</h4>
+                    
+                    <!-- Mode Selector -->
+                    <div class="control-section">
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="processingMode" id="mode-auto" value="auto" checked>
+                                <label for="mode-auto">
+                                    <div class="option-title">🤖 อัตโนมัติ (แนะนำ)</div>
+                                    <div class="option-desc">ระบบเลือก tier ที่ดีที่สุดให้อัตโนมัติ - เหมาะสำหรับ pipeline</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="processingMode" id="mode-manual" value="manual">
+                                <label for="mode-manual">
+                                    <div class="option-title">⚙️ กำหนดเอง</div>
+                                    <div class="option-desc">ตั้งค่าความสำคัญและงบประมาณเอง</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Auto Mode Info (visible by default) -->
+                    <div id="autoModeInfo" class="cost-estimate" style="margin-top: 15px;">
+                        <strong>🎯 โหมดอัตโนมัติ:</strong> ระบบจะ<br>
+                        • ✅ ประเมินคุณภาพภาพก่อนสกัด<br>
+                        • 🎯 เลือก tier ที่เหมาะสมอัตโนมัติ<br>
+                        • 🔄 retry ด้วย tier ที่สูงขึ้นถ้าคุณภาพไม่ถึงเป้า<br>
+                        • 💎 มุ่งเน้นคุณภาพสูงสุด (target ≥ 0.85)
+                    </div>
+                    
+                    <!-- Manual Mode Controls (hidden by default) -->
+                    <div id="manualModeControls" style="display: none; margin-top: 15px;">
+                    
+                    <!-- Visual Pre-Check -->
+                    <div class="control-section">
+                        <div class="checkbox-group" onclick="document.getElementById('visualPrecheck').click()">
+                            <input type="checkbox" id="visualPrecheck">
+                            <label>
+                                <strong>📸 เปิดใช้การประเมินคุณภาพภาพก่อน (Visual Pre-Assessment)</strong>
+                                <span class="checkbox-help">ใช้ Gemini Vision ตรวจสอบคุณภาพ PDF ก่อนสกัดเนื้อหา - ช่วยเลือก tier ที่เหมาะสมอัตโนมัติ</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Document Importance -->
+                    <div class="control-section">
+                        <label class="control-label">📊 ความสำคัญของเอกสาร</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="importance" id="imp-low" value="low">
+                                <label for="imp-low">
+                                    <div class="option-title">🔵 ต่ำ</div>
+                                    <div class="option-desc">ใช้ tier ที่ถูกที่สุด</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="importance" id="imp-medium" value="medium" checked>
+                                <label for="imp-medium">
+                                    <div class="option-title">🟡 ปานกลาง</div>
+                                    <div class="option-desc">สมดุลระหว่างต้นทุนและคุณภาพ</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="importance" id="imp-high" value="high">
+                                <label for="imp-high">
+                                    <div class="option-title">🔴 สูง</div>
+                                    <div class="option-desc">ใช้ tier ที่ให้คุณภาพดีที่สุด</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Budget Mode -->
+                    <div class="control-section">
+                        <label class="control-label">💰 โหมดงบประมาณ</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="budget" id="budget-free" value="free">
+                                <label for="budget-free">
+                                    <div class="option-title">⚡ ฟรี</div>
+                                    <div class="option-desc">ใช้ Docling เท่านั้น ($0)</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="budget" id="budget-balanced" value="balanced" checked>
+                                <label for="budget-balanced">
+                                    <div class="option-title">⚖️ สมดุล</div>
+                                    <div class="option-desc">เลือกอัตโนมัติ (~$0.0001/หน้า)</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="budget" id="budget-premium" value="premium">
+                                <label for="budget-premium">
+                                    <div class="option-title">💎 พรีเมียม</div>
+                                    <div class="option-desc">ใช้ tier ได้ทั้งหมด (~$0.0005/หน้า)</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Force Tier (Optional) -->
+                    <div class="control-section">
+                        <label class="control-label">🎯 บังคับใช้ Tier (ไม่แนะนำ - ปิด smart routing)</label>
+                        <div class="radio-group">
+                            <div class="radio-option">
+                                <input type="radio" name="forceTier" id="tier-auto" value="" checked>
+                                <label for="tier-auto">
+                                    <div class="option-title">🤖 อัตโนมัติ</div>
+                                    <div class="option-desc">ให้ระบบเลือกให้</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="forceTier" id="tier-fast" value="fast">
+                                <label for="tier-fast">
+                                    <div class="option-title">⚡ Fast</div>
+                                    <div class="option-desc">Docling ($0)</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="forceTier" id="tier-balanced" value="balanced">
+                                <label for="tier-balanced">
+                                    <div class="option-title">⚖️ Balanced</div>
+                                    <div class="option-desc">Gemini Flash</div>
+                                </label>
+                            </div>
+                            <div class="radio-option">
+                                <input type="radio" name="forceTier" id="tier-premium" value="premium">
+                                <label for="tier-premium">
+                                    <div class="option-title">💎 Premium</div>
+                                    <div class="option-desc">Gemini Pro</div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cost Estimate -->
+                    <div class="cost-estimate">
+                        <strong>💡 ค่าประมาณการ:</strong> <span id="costEstimate">รอเลือกไฟล์...</span>
+                    </div>
+                    
+                    </div><!-- End manual controls -->
+                </div>
                 <div class="file-types">
                     <span class="file-type-badge">📄 PDF</span>
                     <span class="file-type-badge">📝 DOCX</span>
@@ -423,6 +734,23 @@
         const loading = document.getElementById('loading');
         const results = document.getElementById('results');
         let allExpanded = false;
+
+        // Mode switching
+        document.querySelectorAll('input[name="processingMode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                const mode = e.target.value;
+                const autoInfo = document.getElementById('autoModeInfo');
+                const manualControls = document.getElementById('manualModeControls');
+                
+                if (mode === 'auto') {
+                    autoInfo.style.display = 'block';
+                    manualControls.style.display = 'none';
+                } else {
+                    autoInfo.style.display = 'none';
+                    manualControls.style.display = 'block';
+                }
+            });
+        });
 
         // Drag and drop handlers
         uploadArea.addEventListener('dragover', (e) => {
@@ -467,6 +795,40 @@
             // Upload file
             const formData = new FormData();
             formData.append('file', file);
+            
+            // Check processing mode
+            const processingMode = document.querySelector('input[name="processingMode"]:checked').value;
+            
+            if (processingMode === 'auto') {
+                // Auto mode - optimal settings for quality
+                formData.append('enable_visual_precheck', 'true');
+                formData.append('importance', 'high');
+                formData.append('budget_mode', 'premium');
+                formData.append('auto_mode', 'true');
+                
+                console.log('🚀 Uploading in AUTO mode (quality-first)');
+            } else {
+                // Manual mode - user-specified settings
+                const visualPrecheck = document.getElementById('visualPrecheck').checked;
+                const importance = document.querySelector('input[name="importance"]:checked').value;
+                const budgetMode = document.querySelector('input[name="budget"]:checked').value;
+                const forceTier = document.querySelector('input[name="forceTier"]:checked').value;
+                
+                formData.append('enable_visual_precheck', visualPrecheck ? 'true' : 'false');
+                formData.append('importance', importance);
+                formData.append('budget_mode', budgetMode);
+                formData.append('auto_mode', 'false');
+                if (forceTier) {
+                    formData.append('force_tier', forceTier);
+                }
+                
+                console.log('🚀 Uploading in MANUAL mode:', {
+                    visual_precheck: visualPrecheck,
+                    importance: importance,
+                    budget_mode: budgetMode,
+                    force_tier: forceTier || 'auto'
+                });
+            }
 
             try {
                 const response = await fetch('/upload', {
@@ -490,13 +852,91 @@
             }
         }
 
+        function getQualityBadge(score) {
+            if (score >= 0.85) return '🟢';
+            if (score >= 0.70) return '🟡';
+            if (score >= 0.50) return '🟠';
+            return '🔴';
+        }
+
+        function getScoreColor(score) {
+            if (score >= 0.8) return '#10b981';  // Green
+            if (score >= 0.6) return '#f59e0b';  // Yellow
+            if (score >= 0.4) return '#f97316';  // Orange
+            return '#ef4444';  // Red
+        }
+
         function displayResults(data) {
+            // Display extraction method banner (if available)
+            if (data.extraction) {
+                const methodBanner = document.createElement('div');
+                
+                // Determine color based on tier
+                let bgColor = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'; // Fast
+                if (data.extraction.method === 'BALANCED') {
+                    bgColor = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'; // Balanced
+                } else if (data.extraction.method === 'PREMIUM') {
+                    bgColor = 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)'; // Premium
+                } else if (data.extraction.method === 'VLM') {
+                    bgColor = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; // VLM
+                }
+                
+                methodBanner.style.cssText = `
+                    background: ${bgColor};
+                    color: white;
+                    padding: 20px;
+                    border-radius: 12px;
+                    margin-bottom: 20px;
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                `;
+                
+                const qualityBadge = getQualityBadge(data.extraction.quality_score);
+                
+                // Build metadata display
+                let metadataHTML = '';
+                if (data.metadata && Object.keys(data.metadata).length > 0) {
+                    const meta = data.metadata;
+                    metadataHTML = `
+                        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.3); font-size: 0.9em;">
+                            ${meta.cost !== undefined ? `💰 Cost: <strong>$${meta.cost.toFixed(4)}</strong>` : ''}
+                            ${meta.extraction_time !== undefined ? ` | ⏱️ Time: <strong>${meta.extraction_time.toFixed(1)}s</strong>` : ''}
+                            ${meta.retry_count > 0 ? ` | 🔄 Retries: <strong>${meta.retry_count}</strong>` : ''}
+                            ${meta.visual_quality !== undefined && meta.visual_quality !== null ? ` | 📸 Visual: <strong>${meta.visual_quality.toFixed(2)}</strong>` : ''}
+                            ${meta.tiers_attempted && meta.tiers_attempted.length > 1 ? `<br>🎯 Tiers attempted: <strong>${meta.tiers_attempted.join(' → ')}</strong>` : ''}
+                            ${meta.routing_reason ? `<br>💡 ${meta.routing_reason}` : ''}
+                        </div>
+                    `;
+                }
+                
+                methodBanner.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                        <div style="font-size: 3em;">${data.extraction.method_icon}</div>
+                        <div style="flex: 1;">
+                            <h3 style="margin: 0 0 5px 0; font-size: 1.5em;">${data.extraction.method_label}</h3>
+                            <p style="margin: 0; opacity: 0.9;">คุณภาพการสกัด: ${qualityBadge} ${data.extraction.quality_score.toFixed(3)} / 1.000</p>
+                            ${data.extraction.quality_recommendation ? `<p style="margin: 5px 0 0 0; opacity: 0.8; font-size: 0.9em;">💡 ${data.extraction.quality_recommendation}</p>` : ''}
+                            ${metadataHTML}
+                        </div>
+                    </div>
+                `;
+                
+                const resultsSection = document.getElementById('resultsSection');
+                if (resultsSection && resultsSection.firstChild) {
+                    resultsSection.insertBefore(methodBanner, resultsSection.firstChild);
+                }
+            }
+            
             // Display stats (updated for pages)
             const statsHtml = `
                 <div class="stat-card">
-                    <div class="stat-icon">�</div>
+                    <div class="stat-icon">📄</div>
                     <div class="stat-value">${data.stats.pages}</div>
                     <div class="stat-label">Pages</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">⭐</div>
+                    <div class="stat-value">${data.extraction ? data.extraction.quality_score.toFixed(2) : data.quality.score}</div>
+                    <div class="stat-label">Quality Score</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-icon">📑</div>
@@ -528,11 +968,6 @@
                     <div class="stat-value">${data.stats.glyph_artifacts}</div>
                     <div class="stat-label">GLYPH Artifacts</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon">⭐</div>
-                    <div class="stat-value">${data.quality.score}</div>
-                    <div class="stat-label">Quality Score</div>
-                </div>
             `;
             
             const statsGrid = document.getElementById('statsGrid');
@@ -556,6 +991,52 @@
             const sectionsContainer = document.getElementById('sectionsContainer');
             if (sectionsContainer) {
                 sectionsContainer.innerHTML = sectionsHtml;
+            }
+
+            // Display quality dimensions (if available)
+            if (data.extraction && data.extraction.quality_dimensions && Object.keys(data.extraction.quality_dimensions).length > 0) {
+                const dimensionsHtml = `
+                    <div style="background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <h3 style="margin: 0 0 15px 0; color: #1e293b;">📊 Quality Dimensions</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                            ${Object.entries(data.extraction.quality_dimensions).map(([name, dim]) => `
+                                <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid ${getScoreColor(dim.score)};">
+                                    <div style="font-weight: 600; color: #1e293b; margin-bottom: 5px; text-transform: capitalize;">
+                                        ${name.replace(/_/g, ' ')}
+                                    </div>
+                                    <div style="font-size: 1.5em; color: ${getScoreColor(dim.score)}; margin-bottom: 3px;">
+                                        ${(dim.score * 100).toFixed(0)}%
+                                    </div>
+                                    <div style="font-size: 0.85em; color: #64748b;">
+                                        Weight: ${(dim.weight * 100).toFixed(0)}%
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+                
+                if (sectionsContainer && sectionsContainer.previousElementSibling) {
+                    sectionsContainer.insertAdjacentHTML('beforebegin', dimensionsHtml);
+                }
+            }
+
+            // Display quality issues (if any)
+            if (data.extraction && data.extraction.quality_issues && data.extraction.quality_issues.length > 0) {
+                const issuesHtml = `
+                    <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <h4 style="margin: 0 0 10px 0; color: #92400e;">⚠️ Quality Issues</h4>
+                        ${data.extraction.quality_issues.map(issue => `
+                            <div style="margin: 5px 0; color: #78350f;">
+                                <span style="font-weight: 600;">[${issue.severity}]</span> ${issue.message}
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                
+                if (sectionsContainer && sectionsContainer.previousElementSibling) {
+                    sectionsContainer.insertAdjacentHTML('beforebegin', issuesHtml);
+                }
             }
 
             if (results) {
