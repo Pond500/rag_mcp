@@ -1,0 +1,221 @@
+"""Langfuse Tracer - Example Implementation
+
+THIS IS AN EXAMPLE FILE FOR THE OBSERVABILITY TEAM
+Copy this to langfuse_tracer.py and implement the methods.
+
+Prerequisites:
+    pip install langfuse
+
+Configuration:
+    Set environment variables:
+    - LANGFUSE_PUBLIC_KEY
+    - LANGFUSE_SECRET_KEY
+    - LANGFUSE_HOST (optional, for self-hosted)
+
+Usage:
+    from src.observability import set_tracer
+    from src.observability.langfuse_tracer import LangfuseTracer
+    
+    # Initialize at app startup
+    set_tracer(LangfuseTracer())
+"""
+from __future__ import annotations
+from typing import Any, Dict, Optional
+import os
+import logging
+
+# Uncomment when implementing:
+# from langfuse import Langfuse
+
+from .tracer import (
+    ObservabilityTracer,
+    TraceData,
+    SpanData,
+    SpanType
+)
+
+logger = logging.getLogger(__name__)
+
+
+class LangfuseTracer(ObservabilityTracer):
+    """Langfuse implementation of ObservabilityTracer
+    
+    TODO for Observe Team:
+    1. Install langfuse: pip install langfuse
+    2. Uncomment the langfuse imports
+    3. Implement the methods below
+    4. Test with: set_tracer(LangfuseTracer())
+    """
+    
+    def __init__(
+        self,
+        public_key: Optional[str] = None,
+        secret_key: Optional[str] = None,
+        host: Optional[str] = None
+    ):
+        """Initialize Langfuse client
+        
+        Args:
+            public_key: Langfuse public key (or LANGFUSE_PUBLIC_KEY env var)
+            secret_key: Langfuse secret key (or LANGFUSE_SECRET_KEY env var)
+            host: Langfuse host URL (or LANGFUSE_HOST env var, default: cloud)
+        """
+        # Get credentials from args or environment
+        self.public_key = public_key or os.getenv("LANGFUSE_PUBLIC_KEY")
+        self.secret_key = secret_key or os.getenv("LANGFUSE_SECRET_KEY")
+        self.host = host or os.getenv("LANGFUSE_HOST")
+        
+        if not self.public_key or not self.secret_key:
+            raise ValueError(
+                "Langfuse credentials required. Set LANGFUSE_PUBLIC_KEY and "
+                "LANGFUSE_SECRET_KEY environment variables or pass them to constructor."
+            )
+        
+        # TODO: Uncomment and initialize Langfuse client
+        # self.langfuse = Langfuse(
+        #     public_key=self.public_key,
+        #     secret_key=self.secret_key,
+        #     host=self.host
+        # )
+        
+        # Store active traces for lookup
+        self._active_traces: Dict[str, Any] = {}
+        
+        logger.info(f"LangfuseTracer initialized (host: {self.host or 'cloud'})")
+    
+    def on_trace_start(self, trace: TraceData) -> None:
+        """Create a new trace in Langfuse"""
+        # TODO: Implement
+        # langfuse_trace = self.langfuse.trace(
+        #     id=trace.trace_id,
+        #     name=trace.name,
+        #     user_id=trace.user_id,
+        #     session_id=trace.session_id,
+        #     metadata=trace.metadata,
+        #     tags=trace.tags,
+        #     input=trace.input_data
+        # )
+        # self._active_traces[trace.trace_id] = langfuse_trace
+        
+        logger.debug(f"[Langfuse] Trace started: {trace.name} ({trace.trace_id[:8]})")
+    
+    def on_trace_end(self, trace: TraceData) -> None:
+        """Complete a trace in Langfuse"""
+        # TODO: Implement
+        # langfuse_trace = self._active_traces.get(trace.trace_id)
+        # if langfuse_trace:
+        #     langfuse_trace.update(
+        #         output=trace.output_data,
+        #         metadata={
+        #             **trace.metadata,
+        #             "total_tokens": trace.total_tokens,
+        #             "total_cost": trace.total_cost,
+        #             "duration_ms": trace.duration_ms
+        #         },
+        #         status="error" if trace.error else "success"
+        #     )
+        #     del self._active_traces[trace.trace_id]
+        
+        logger.debug(
+            f"[Langfuse] Trace ended: {trace.name} ({trace.trace_id[:8]}) "
+            f"duration={trace.duration_ms:.0f}ms"
+        )
+    
+    def on_span_end(self, span: SpanData, trace: TraceData) -> None:
+        """Create a span/generation in Langfuse"""
+        # TODO: Implement based on span type
+        # langfuse_trace = self._active_traces.get(trace.trace_id)
+        # 
+        # if span.span_type == SpanType.LLM:
+        #     # Use generation for LLM calls
+        #     langfuse_trace.generation(
+        #         id=span.span_id,
+        #         name=span.name,
+        #         input=span.input_data,
+        #         output=span.output_data,
+        #         model=span.metadata.get("model"),
+        #         usage={
+        #             "input": span.metrics.get("input_tokens", 0),
+        #             "output": span.metrics.get("output_tokens", 0),
+        #             "total": span.metrics.get("total_tokens", 0)
+        #         },
+        #         metadata=span.metadata,
+        #         level="ERROR" if span.error else "DEFAULT"
+        #     )
+        # else:
+        #     # Use span for other operations
+        #     langfuse_trace.span(
+        #         id=span.span_id,
+        #         name=span.name,
+        #         input=span.input_data,
+        #         output=span.output_data,
+        #         metadata={
+        #             **span.metadata,
+        #             "span_type": span.span_type.value,
+        #             "metrics": span.metrics
+        #         },
+        #         level="ERROR" if span.error else "DEFAULT"
+        #     )
+        
+        logger.debug(
+            f"[Langfuse] Span ended: {span.name} ({span.span_type.value}) "
+            f"duration={span.duration_ms:.0f}ms"
+        )
+    
+    def on_event(self, name: str, data: Dict[str, Any], trace_id: Optional[str] = None) -> None:
+        """Log an event to Langfuse"""
+        # TODO: Implement
+        # if trace_id and trace_id in self._active_traces:
+        #     self._active_traces[trace_id].event(
+        #         name=name,
+        #         metadata=data
+        #     )
+        
+        logger.debug(f"[Langfuse] Event: {name}")
+    
+    def on_feedback(
+        self,
+        trace_id: str,
+        score: float,
+        comment: Optional[str] = None,
+        user_id: Optional[str] = None
+    ) -> None:
+        """Record feedback for a trace"""
+        # TODO: Implement
+        # self.langfuse.score(
+        #     trace_id=trace_id,
+        #     name="user_feedback",
+        #     value=score,
+        #     comment=comment,
+        #     user_id=user_id
+        # )
+        
+        logger.debug(f"[Langfuse] Feedback: trace={trace_id[:8]} score={score}")
+    
+    def flush(self) -> None:
+        """Flush all pending data to Langfuse"""
+        # TODO: Implement
+        # self.langfuse.flush()
+        
+        logger.debug("[Langfuse] Flushed")
+
+
+# Example of how to use with the RAG service
+"""
+# In mcp/server.py or main.py:
+
+from src.observability import set_tracer, init_tracer
+from src.observability.langfuse_tracer import LangfuseTracer
+
+# Option 1: Use logging tracer for development
+init_tracer("logging")
+
+# Option 2: Use Langfuse for production
+# set_tracer(LangfuseTracer())
+
+# Then in RAG service, traces are automatically captured:
+# - All search operations
+# - All chat operations  
+# - All document uploads
+# - LLM token usage and costs
+"""

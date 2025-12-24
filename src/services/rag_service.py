@@ -416,9 +416,14 @@ class RAGService:
                 return {
                     "success": True,
                     "chunks_count": result["upserted_count"],
+                    "chunks_created": result["upserted_count"],  # For Langfuse tracking
                     "point_ids": result["point_ids"],
                     "metadata": doc_metadata,
-                    "message": f"Document uploaded successfully: {result['upserted_count']} chunks"
+                    "message": f"Document uploaded successfully: {result['upserted_count']} chunks",
+                    # VLM cost tracking for Langfuse
+                    "document_name": filename,
+                    "pages_processed": len(pages),
+                    "vlm_cost": extraction_metadata.get("extraction_cost", 0.0)
                 }
             else:
                 return result
@@ -904,12 +909,20 @@ class RAGService:
             }
         """
         try:
-            # Search for context
+            # Search for context (kb_name is required when calling search)
+            if not kb_name:
+                return {
+                    "success": False,
+                    "message": "kb_name is required for chat",
+                    "answer": "",
+                    "kb_name": None,
+                    "sources": []
+                }
+            
             search_result = self.search(
                 query=query,
                 kb_name=kb_name,
                 top_k=top_k,
-                use_routing=use_routing,
                 use_reranking=use_reranking
             )
             
@@ -918,8 +931,9 @@ class RAGService:
                 context = []
                 kb_name = kb_name or "unknown"
             else:
-                context = [r["payload"].get("text", "") for r in search_result["results"]]
-                kb_name = search_result["kb_name"]
+                # search() returns results with "content" field
+                context = [r.get("content", "") for r in search_result["results"]]
+                kb_name = search_result.get("kb_name", kb_name)
             
             # Get conversation history
             history = None
@@ -934,15 +948,15 @@ class RAGService:
                 session_id=session_id
             )
             
-            # Format sources
+            # Format sources from search results
             sources = []
             if search_result.get("success"):
                 for r in search_result["results"]:
                     sources.append({
-                        "text": r["payload"].get("text", "")[:200] + "...",
-                        "score": r["score"],
-                        "filename": r["payload"].get("filename", "N/A"),
-                        "page": r["payload"].get("page", 0)
+                        "text": r.get("content", "")[:200] + "...",
+                        "score": r.get("score", 0),
+                        "filename": r.get("metadata", {}).get("source_file", "N/A"),
+                        "page": r.get("metadata", {}).get("page", 0)
                     })
             
             return {
@@ -952,7 +966,8 @@ class RAGService:
                 "sources": sources,
                 "session_id": session_id,
                 "model": response.get("model", "unknown"),
-                "timestamp": response.get("timestamp")
+                "timestamp": response.get("timestamp"),
+                "tokens": response.get("tokens", {})
             }
             
         except Exception as e:

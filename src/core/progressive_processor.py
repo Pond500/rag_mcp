@@ -100,10 +100,11 @@ class ProgressiveDocumentProcessor:
             
             try:
                 extract_start = time.time()
-                pages, quality_report = self._extract_tier(tier, pdf_path, pdf_bytes, clean_text)
+                pages, quality_report, tier_cost = self._extract_tier(tier, pdf_path, pdf_bytes, clean_text)
                 extraction_time = time.time() - extract_start
                 
-                cost = len(pages) * self.TIER_COSTS[tier]
+                # Use actual cost from OpenRouter API, not estimated cost
+                cost = tier_cost if tier_cost > 0 else (len(pages) * self.TIER_COSTS[tier])
                 total_cost += cost
                 
                 logger.info(
@@ -131,9 +132,10 @@ class ProgressiveDocumentProcessor:
                 if ("429" in str(e) or "quota" in str(e).lower()) and tier != 'fast' and self.enable_fast_tier:
                     logger.info("🆓 Emergency fallback to fast tier")
                     try:
-                        pages, quality_report = self._extract_tier('fast', pdf_path, pdf_bytes, clean_text)
-                        best_result = (pages, quality_report, 'fast', 0, 0)
+                        pages, quality_report, fallback_cost = self._extract_tier('fast', pdf_path, pdf_bytes, clean_text)
+                        best_result = (pages, quality_report, 'fast', 0, fallback_cost)
                         best_quality = quality_report.overall_score
+                        total_cost += fallback_cost
                         break
                     except:
                         pass
@@ -171,10 +173,16 @@ class ProgressiveDocumentProcessor:
                 error="All tiers failed"
             )
     
-    def _extract_tier(self, tier: str, pdf_path, pdf_bytes, clean_text) -> Tuple[List[str], QualityReport]:
-        """Extract with specific tier"""
+    def _extract_tier(self, tier: str, pdf_path, pdf_bytes, clean_text) -> Tuple[List[str], QualityReport, float]:
+        """Extract with specific tier
+        
+        Returns:
+            Tuple[List[str], QualityReport, float]: (pages, quality_report, cost_usd)
+        """
+        actual_cost = 0.0
+        
         if tier == 'fast':
-            # Level 1: Use Docling (no Tesseract OCR)
+            # Level 1: Use Docling (no Tesseract OCR) - FREE
             if pdf_path:
                 pages = self.fast_processor.extract_text(file_path=pdf_path)
             else:
@@ -187,6 +195,7 @@ class ProgressiveDocumentProcessor:
             
             if clean_text and hasattr(self.fast_processor, 'text_cleaner'):
                 pages = self.fast_processor.text_cleaner.clean_pages(pages)
+            actual_cost = 0.0  # Docling is free
         
         elif tier == 'balanced':
             # Level 2: Use VLM if quality < 0.70 from fast tier
@@ -195,7 +204,7 @@ class ProgressiveDocumentProcessor:
                     api_key=self.openrouter_api_key,
                     model='free'  # Use free Gemini model
                 )
-            pages = self._balanced_extractor.extract_from_pdf(pdf_path=pdf_path, pdf_bytes=pdf_bytes, dpi=self.image_dpi)
+            pages, actual_cost = self._balanced_extractor.extract_from_pdf(pdf_path=pdf_path, pdf_bytes=pdf_bytes, dpi=self.image_dpi)
         
         elif tier == 'premium':
             # Level 3: Use Premium VLM if quality < 0.80 from balanced tier
@@ -204,10 +213,10 @@ class ProgressiveDocumentProcessor:
                     api_key=self.openrouter_api_key,
                     model='premium'
                 )
-            pages = self._premium_extractor.extract_from_pdf(pdf_path=pdf_path, pdf_bytes=pdf_bytes, dpi=self.image_dpi)
+            pages, actual_cost = self._premium_extractor.extract_from_pdf(pdf_path=pdf_path, pdf_bytes=pdf_bytes, dpi=self.image_dpi)
         
         quality_report = self.quality_checker.check_quality(pages)
-        return pages, quality_report
+        return pages, quality_report, actual_cost
 
     def chunk_text(self, pages: List[str], chunk_size: int = 1000, overlap: int = 200) -> List[dict]:
         """Chunk text using the underlying DocumentProcessor

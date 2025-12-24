@@ -15,6 +15,10 @@ Tools:
 
 Run: uvicorn mcp.server:app --reload
 """
+# Load environment variables FIRST
+from dotenv import load_dotenv
+load_dotenv()
+
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import logging
@@ -29,6 +33,17 @@ from pydantic import BaseModel, Field
 from src.config import get_settings
 from src.services import RAGService
 from src.utils.logger import get_logger, LoggerContext, set_request_id, clear_request_id
+
+# Import MCP Tool Tracer for observability
+from src.observability import MCPToolTracer, get_mcp_tool_tracer
+
+# Try to setup Langfuse tracing
+try:
+    from src.observability.langfuse_tracer import setup_langfuse_tracing
+    LANGFUSE_AVAILABLE = setup_langfuse_tracing()
+except Exception as e:
+    LANGFUSE_AVAILABLE = False
+    print(f"⚠️ Langfuse setup failed: {e}")
  
 # Initialize logger with comprehensive settings
 logger = get_logger(__name__, log_file="mcp_server.log", enable_json=True)
@@ -446,128 +461,140 @@ async def mcp_endpoint(request: Request):
 
 
 async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
-    """Execute MCP tool and return result"""
+    """Execute MCP tool and return result with tracing"""
     import base64
     import json
     
     service = get_service()
+    mcp_tracer = get_mcp_tool_tracer()
     
-    if tool_name == "create_kb":
-        result = service.create_kb(
-            kb_name=arguments["kb_name"],
-            description=arguments["description"],
-            category=arguments.get("category", "general")
-        )
-        return json.dumps(result, ensure_ascii=False)
+    # Start tracing
+    start_time = time.time()
+    trace_context = mcp_tracer.start_tool_trace(tool_name, arguments)
+    result_data = None
+    error_info = None
     
-    elif tool_name == "delete_kb":
-        result = service.delete_kb(arguments["kb_name"])
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "list_kbs":
-        result = service.list_kbs()
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "upload_document":
-        # Decode base64 content
-        file_content = base64.b64decode(arguments["file_content"])
-        result = service.upload_document(
-            kb_name=arguments["kb_name"],
-            filename=arguments["filename"],
-            file_content=file_content
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "search":
-        # v2.1: kb_name is required, no routing support
-        kb_name = arguments.get("kb_name")
-        if not kb_name:
-            return json.dumps({
-                "success": False,
-                "message": "kb_name is required for search (v2.1+). Use auto_routing_chat for automatic KB selection."
-            }, ensure_ascii=False)
+    try:
+        if tool_name == "create_kb":
+            result_data = service.create_kb(
+                kb_name=arguments["kb_name"],
+                description=arguments["description"],
+                category=arguments.get("category", "general")
+            )
         
-        result = service.search(
-            query=arguments["query"],
-            kb_name=kb_name,
-            top_k=arguments.get("top_k", 5),
-            use_reranking=arguments.get("use_reranking", True),
-            include_metadata=arguments.get("include_metadata", True),
-            deduplicate=arguments.get("deduplicate", True)
+        elif tool_name == "delete_kb":
+            result_data = service.delete_kb(arguments["kb_name"])
+        
+        elif tool_name == "list_kbs":
+            result_data = service.list_kbs()
+        
+        elif tool_name == "upload_document":
+            # Decode base64 content
+            file_content = base64.b64decode(arguments["file_content"])
+            result_data = service.upload_document(
+                kb_name=arguments["kb_name"],
+                filename=arguments["filename"],
+                file_content=file_content
+            )
+        
+        elif tool_name == "search":
+            # v2.1: kb_name is required, no routing support
+            kb_name = arguments.get("kb_name")
+            if not kb_name:
+                result_data = {
+                    "success": False,
+                    "message": "kb_name is required for search (v2.1+). Use auto_routing_chat for automatic KB selection."
+                }
+            else:
+                result_data = service.search(
+                    query=arguments["query"],
+                    kb_name=kb_name,
+                    top_k=arguments.get("top_k", 5),
+                    use_reranking=arguments.get("use_reranking", True),
+                    include_metadata=arguments.get("include_metadata", True),
+                    deduplicate=arguments.get("deduplicate", True)
+                )
+        
+        elif tool_name == "chat":
+            result_data = service.chat(
+                query=arguments["query"],
+                kb_name=arguments.get("kb_name"),
+                session_id=arguments.get("session_id"),
+                top_k=arguments.get("top_k", 5),
+                use_routing=arguments.get("kb_name") is None,
+                use_reranking=True
+            )
+        
+        elif tool_name == "auto_routing_chat":
+            # Auto-routing chat - always use semantic routing to select best KB
+            import uuid as uuid_lib
+            session_id = arguments.get("session_id") or str(uuid_lib.uuid4())
+            result_data = service.chat(
+                query=arguments["query"],
+                kb_name=None,  # Force auto-routing
+                session_id=session_id,
+                top_k=arguments.get("top_k", 5),
+                use_routing=True,  # Always use routing
+                use_reranking=True
+            )
+            # Add extra info about routing
+            result_data["auto_routed"] = True
+            result_data["session_id"] = session_id
+        
+        elif tool_name == "clear_history":
+            result_data = service.clear_chat_history(arguments["session_id"])
+        
+        elif tool_name == "health":
+            result_data = service.health_check()
+        
+        # Document Management Tools
+        elif tool_name == "list_documents":
+            result_data = service.list_documents(
+                kb_name=arguments["kb_name"],
+                limit=arguments.get("limit", 100),
+                offset=arguments.get("offset", 0)
+            )
+        
+        elif tool_name == "get_document":
+            result_data = service.get_document(
+                kb_name=arguments["kb_name"],
+                filename=arguments["filename"],
+                include_chunks=arguments.get("include_chunks", False)
+            )
+        
+        elif tool_name == "delete_document":
+            result_data = service.delete_document(
+                kb_name=arguments["kb_name"],
+                filename=arguments["filename"]
+            )
+        
+        elif tool_name == "update_document":
+            file_content = base64.b64decode(arguments["file_content"])
+            result_data = service.update_document(
+                kb_name=arguments["kb_name"],
+                filename=arguments["filename"],
+                file_content=file_content
+            )
+        
+        else:
+            raise ValueError(f"Unknown tool: {tool_name}")
+        
+        return json.dumps(result_data, ensure_ascii=False)
+    
+    except Exception as e:
+        error_info = str(e)
+        logger.error(f"MCP Tool Error [{tool_name}]: {error_info}")
+        raise
+    
+    finally:
+        # End tracing - always record the trace
+        duration = time.time() - start_time
+        mcp_tracer.end_tool_trace(
+            context=trace_context,
+            result=result_data,
+            error=error_info,
+            duration=duration
         )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "chat":
-        result = service.chat(
-            query=arguments["query"],
-            kb_name=arguments.get("kb_name"),
-            session_id=arguments.get("session_id"),
-            top_k=arguments.get("top_k", 5),
-            use_routing=arguments.get("kb_name") is None,
-            use_reranking=True
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "auto_routing_chat":
-        # Auto-routing chat - always use semantic routing to select best KB
-        import uuid as uuid_lib
-        session_id = arguments.get("session_id") or str(uuid_lib.uuid4())
-        result = service.chat(
-            query=arguments["query"],
-            kb_name=None,  # Force auto-routing
-            session_id=session_id,
-            top_k=arguments.get("top_k", 5),
-            use_routing=True,  # Always use routing
-            use_reranking=True
-        )
-        # Add extra info about routing
-        result["auto_routed"] = True
-        result["session_id"] = session_id
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "clear_history":
-        result = service.clear_chat_history(arguments["session_id"])
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "health":
-        result = service.health_check()
-        return json.dumps(result, ensure_ascii=False)
-    
-    # Document Management Tools
-    elif tool_name == "list_documents":
-        result = service.list_documents(
-            kb_name=arguments["kb_name"],
-            limit=arguments.get("limit", 100),
-            offset=arguments.get("offset", 0)
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "get_document":
-        result = service.get_document(
-            kb_name=arguments["kb_name"],
-            filename=arguments["filename"],
-            include_chunks=arguments.get("include_chunks", False)
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "delete_document":
-        result = service.delete_document(
-            kb_name=arguments["kb_name"],
-            filename=arguments["filename"]
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    elif tool_name == "update_document":
-        file_content = base64.b64decode(arguments["file_content"])
-        result = service.update_document(
-            kb_name=arguments["kb_name"],
-            filename=arguments["filename"],
-            file_content=file_content
-        )
-        return json.dumps(result, ensure_ascii=False)
-    
-    else:
-        raise ValueError(f"Unknown tool: {tool_name}")
 
 
 # ========================

@@ -101,15 +101,26 @@ class ChatEngine:
                 # Trim history if too long
                 self._trim_history(session_id)
             
-            logger.info("Generated answer: %d chars (model: %s)", 
-                       len(answer), response.get("model", "unknown"))
+            # Extract token usage from OpenAI response
+            usage = response.get("usage")
+            tokens = {}
+            if usage:
+                tokens = {
+                    "input": getattr(usage, "prompt_tokens", 0),
+                    "output": getattr(usage, "completion_tokens", 0),
+                    "total": getattr(usage, "total_tokens", 0)
+                }
+            
+            logger.info("Generated answer: %d chars (model: %s, tokens: %s)", 
+                       len(answer), response.get("model", "unknown"), tokens)
             
             return {
                 "answer": answer,
                 "model": response.get("model", "unknown"),
                 "context_used": context or [],
                 "session_id": session_id,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
+                "tokens": tokens
             }
             
         except Exception as e:
@@ -118,6 +129,7 @@ class ChatEngine:
                 "answer": f"ขออภัย เกิดข้อผิดพลาด: {str(e)}",
                 "model": "error",
                 "context_used": [],
+                "tokens": {},
                 "session_id": session_id,
                 "timestamp": datetime.now().isoformat()
             }

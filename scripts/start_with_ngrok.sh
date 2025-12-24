@@ -131,6 +131,21 @@ echo -e "${YELLOW}   ⏳ Waiting for ngrok...${NC}"
 sleep 5
 
 # ============================================
+# 4.5 Check Langfuse Status
+# ============================================
+echo -e "${YELLOW}📊 Checking Langfuse tracing...${NC}"
+
+LANGFUSE_STATUS=$(grep -E "Langfuse tracing is (ACTIVE|DISABLED)" logs/mcp_server.log 2>/dev/null | tail -1 || echo "")
+if [[ "$LANGFUSE_STATUS" == *"ACTIVE"* ]]; then
+    LANGFUSE_HOST=$(grep LANGFUSE_HOST .env 2>/dev/null | cut -d'"' -f2 || echo "Not set")
+    echo -e "${GREEN}   ✅ Langfuse tracing is ACTIVE${NC}"
+    echo -e "${GREEN}   📍 Host: $LANGFUSE_HOST${NC}"
+else
+    echo -e "${YELLOW}   ⚠️  Langfuse tracing is DISABLED${NC}"
+    echo -e "${YELLOW}   💡 To enable: Set LANGFUSE_* in .env${NC}"
+fi
+
+# ============================================
 # 5. Get ngrok URL
 # ============================================
 NGROK_URL=$(curl -s http://localhost:4040/api/tunnels 2>/dev/null | python3 -c "
@@ -211,6 +226,12 @@ echo -e "   Local:    ${YELLOW}http://localhost:8000${NC}"
 echo -e "   API Docs: ${YELLOW}http://localhost:8000/docs${NC}"
 echo -e "   Health:   ${YELLOW}http://localhost:8000/tools/health${NC}"
 echo -e "   ngrok:    ${YELLOW}${NGROK_URL}${NC}"
+
+# Show Langfuse URL if active
+if [[ "$LANGFUSE_STATUS" == *"ACTIVE"* ]]; then
+    echo -e "   Langfuse: ${YELLOW}$LANGFUSE_HOST${NC}"
+fi
+
 echo ""
 echo -e "${BLUE}📋 Commands:${NC}"
 echo -e "   View logs:  ${YELLOW}tail -f logs/mcp_server.log${NC}"

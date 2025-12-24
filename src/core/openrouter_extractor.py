@@ -1,5 +1,5 @@
 """OpenRouter VLM Extractor - Lightweight wrapper for multi-model support"""
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import logging
 import requests
 import base64
@@ -35,14 +35,20 @@ class OpenRouterExtractor:
         self.url = "https://openrouter.ai/api/v1/chat/completions"
         logger.info(f"🤖 OpenRouter: {self.model_id}")
     
-    def extract_from_pdf(self, pdf_path: Optional[str] = None, pdf_bytes: Optional[bytes] = None, dpi: int = 200) -> List[str]:
-        """Extract text from PDF"""
+    def extract_from_pdf(self, pdf_path: Optional[str] = None, pdf_bytes: Optional[bytes] = None, dpi: int = 200) -> Tuple[List[str], float]:
+        """Extract text from PDF
+        
+        Returns:
+            Tuple[List[str], float]: (pages, total_cost_usd)
+        """
         if pdf_path:
             images = convert_from_path(pdf_path, dpi=dpi)
         else:
             images = convert_from_bytes(pdf_bytes, dpi=dpi)
         
         pages = []
+        total_cost = 0.0
+        
         for i, img in enumerate(images, 1):
             # Convert to base64
             buffered = BytesIO()
@@ -70,9 +76,22 @@ class OpenRouterExtractor:
                     timeout=60
                 )
                 response.raise_for_status()
-                text = response.json()['choices'][0]['message']['content']
+                response_data = response.json()
+                text = response_data['choices'][0]['message']['content']
                 pages.append(text.strip())
-                logger.info(f"✅ Page {i}: {len(text)} chars")
+                
+                # Extract actual cost from OpenRouter response
+                if 'usage' in response_data:
+                    # OpenRouter returns cost in USD directly (if available)
+                    page_cost = response_data['usage'].get('total_cost', 0.0)
+                    if page_cost > 0:
+                        total_cost += page_cost
+                        logger.info(f"✅ Page {i}: {len(text)} chars, cost=${page_cost:.6f}")
+                    else:
+                        logger.info(f"✅ Page {i}: {len(text)} chars")
+                else:
+                    logger.info(f"✅ Page {i}: {len(text)} chars")
+                    
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429:
                     logger.warning(f"⚠️  Page {i}: Rate limited (429). Continuing with partial results...")
@@ -85,4 +104,5 @@ class OpenRouterExtractor:
                 logger.error(f"❌ Page {i} failed: {e}")
                 pages.append(f"[Error: {str(e)}]")
         
-        return pages
+        logger.info(f"💰 Total VLM cost: ${total_cost:.6f} for {len(pages)} pages")
+        return pages, total_cost
