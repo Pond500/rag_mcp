@@ -132,6 +132,24 @@ class ClearHistoryRequest(BaseModel):
     session_id: str = Field(..., description="Session ID to clear")
 
 
+# Document Management Models
+class ListDocumentsRequest(BaseModel):
+    kb_name: str = Field(..., description="Knowledge base name")
+    limit: int = Field(default=100, ge=1, le=1000, description="Max documents to return")
+    offset: int = Field(default=0, ge=0, description="Pagination offset")
+
+
+class GetDocumentRequest(BaseModel):
+    kb_name: str = Field(..., description="Knowledge base name")
+    filename: str = Field(..., description="Document filename")
+    include_chunks: bool = Field(default=False, description="Include chunk contents")
+
+
+class DeleteDocumentRequest(BaseModel):
+    kb_name: str = Field(..., description="Knowledge base name")
+    filename: str = Field(..., description="Document filename to delete")
+
+
 # ========================
 # MCP Protocol Endpoint (for Dify)
 # ========================
@@ -268,6 +286,58 @@ MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {}
+        }
+    },
+    # Document Management Tools
+    {
+        "name": "list_documents",
+        "description": "แสดงรายการเอกสารทั้งหมดใน Knowledge Base",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kb_name": {"type": "string", "description": "ชื่อ Knowledge Base"},
+                "limit": {"type": "integer", "description": "จำนวนเอกสารสูงสุดที่แสดง", "default": 100},
+                "offset": {"type": "integer", "description": "ตำแหน่งเริ่มต้น (pagination)", "default": 0}
+            },
+            "required": ["kb_name"]
+        }
+    },
+    {
+        "name": "get_document",
+        "description": "ดูรายละเอียดเอกสาร รวมถึง chunks ที่แบ่งไว้",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kb_name": {"type": "string", "description": "ชื่อ Knowledge Base"},
+                "filename": {"type": "string", "description": "ชื่อไฟล์เอกสาร"},
+                "include_chunks": {"type": "boolean", "description": "รวมเนื้อหา chunks ทั้งหมด", "default": False}
+            },
+            "required": ["kb_name", "filename"]
+        }
+    },
+    {
+        "name": "delete_document",
+        "description": "ลบเอกสารออกจาก Knowledge Base",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kb_name": {"type": "string", "description": "ชื่อ Knowledge Base"},
+                "filename": {"type": "string", "description": "ชื่อไฟล์ที่ต้องการลบ"}
+            },
+            "required": ["kb_name", "filename"]
+        }
+    },
+    {
+        "name": "update_document",
+        "description": "อัปเดตเอกสาร (ลบของเก่าและอัปโหลดใหม่)",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kb_name": {"type": "string", "description": "ชื่อ Knowledge Base"},
+                "filename": {"type": "string", "description": "ชื่อไฟล์เอกสาร"},
+                "file_content": {"type": "string", "description": "เนื้อหาไฟล์ใหม่ในรูปแบบ Base64"}
+            },
+            "required": ["kb_name", "filename", "file_content"]
         }
     }
 ]
@@ -463,6 +533,39 @@ async def execute_mcp_tool(tool_name: str, arguments: dict) -> dict:
         result = service.health_check()
         return json.dumps(result, ensure_ascii=False)
     
+    # Document Management Tools
+    elif tool_name == "list_documents":
+        result = service.list_documents(
+            kb_name=arguments["kb_name"],
+            limit=arguments.get("limit", 100),
+            offset=arguments.get("offset", 0)
+        )
+        return json.dumps(result, ensure_ascii=False)
+    
+    elif tool_name == "get_document":
+        result = service.get_document(
+            kb_name=arguments["kb_name"],
+            filename=arguments["filename"],
+            include_chunks=arguments.get("include_chunks", False)
+        )
+        return json.dumps(result, ensure_ascii=False)
+    
+    elif tool_name == "delete_document":
+        result = service.delete_document(
+            kb_name=arguments["kb_name"],
+            filename=arguments["filename"]
+        )
+        return json.dumps(result, ensure_ascii=False)
+    
+    elif tool_name == "update_document":
+        file_content = base64.b64decode(arguments["file_content"])
+        result = service.update_document(
+            kb_name=arguments["kb_name"],
+            filename=arguments["filename"],
+            file_content=file_content
+        )
+        return json.dumps(result, ensure_ascii=False)
+    
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
 
@@ -586,6 +689,142 @@ async def upload_document(
             raise
         except Exception as e:
             logger.error(f"❌ upload_document error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================
+# Document Management Endpoints
+# ========================
+
+@app.post("/tools/list_documents", tags=["Document Management"])
+async def list_documents(request: ListDocumentsRequest):
+    """List all documents in a Knowledge Base
+    
+    Returns document filenames, chunk counts, and upload dates.
+    Supports pagination with limit/offset.
+    """
+    with LoggerContext(logger, "LIST_DOCUMENTS", kb_name=request.kb_name):
+        try:
+            service = get_service()
+            result = service.list_documents(
+                kb_name=request.kb_name,
+                limit=request.limit,
+                offset=request.offset
+            )
+            
+            if result["success"]:
+                doc_count = len(result.get("documents", []))
+                total = result.get("total", 0)
+                logger.info(f"📋 Listed {doc_count}/{total} documents in KB: {request.kb_name}")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  List documents failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ list_documents error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/get_document", tags=["Document Management"])
+async def get_document(request: GetDocumentRequest):
+    """Get detailed info about a document
+    
+    Returns document metadata and optionally all chunks with their content.
+    Useful for inspecting document processing results.
+    """
+    with LoggerContext(logger, "GET_DOCUMENT", kb_name=request.kb_name, filename=request.filename):
+        try:
+            service = get_service()
+            result = service.get_document(
+                kb_name=request.kb_name,
+                filename=request.filename,
+                include_chunks=request.include_chunks
+            )
+            
+            if result["success"]:
+                chunks_count = result.get("document", {}).get("chunks_count", 0)
+                logger.info(f"📄 Got document: {request.filename} ({chunks_count} chunks)")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Get document failed: {result.get('message')}")
+                raise HTTPException(status_code=404, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ get_document error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/delete_document", tags=["Document Management"])
+async def delete_document(request: DeleteDocumentRequest):
+    """Delete a document from Knowledge Base
+    
+    Removes all chunks associated with the document.
+    This action cannot be undone.
+    """
+    with LoggerContext(logger, "DELETE_DOCUMENT", kb_name=request.kb_name, filename=request.filename):
+        try:
+            service = get_service()
+            result = service.delete_document(
+                kb_name=request.kb_name,
+                filename=request.filename
+            )
+            
+            if result["success"]:
+                logger.info(f"🗑️  Document deleted: {request.filename} from {request.kb_name}")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Delete document failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ delete_document error: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/tools/update_document", tags=["Document Management"])
+async def update_document(
+    kb_name: str = Form(..., description="Target knowledge base"),
+    file: UploadFile = File(..., description="Updated document file")
+):
+    """Update (replace) a document in Knowledge Base
+    
+    Deletes the old document and uploads the new version.
+    Filename must match existing document.
+    """
+    with LoggerContext(logger, "UPDATE_DOCUMENT", kb_name=kb_name, filename=file.filename):
+        try:
+            service = get_service()
+            
+            file_content = await file.read()
+            file_size = len(file_content)
+            
+            logger.info(f"🔄 Updating: {file.filename} ({file_size:,} bytes) in KB: {kb_name}")
+            
+            result = service.update_document(
+                kb_name=kb_name,
+                filename=file.filename or "untitled",
+                file_content=file_content
+            )
+            
+            if result["success"]:
+                chunks_count = result.get("chunks_count", 0)
+                logger.info(f"✅ Document updated: {file.filename} | {chunks_count} chunks")
+                return JSONResponse(content=result)
+            else:
+                logger.warning(f"⚠️  Update document failed: {result.get('message')}")
+                raise HTTPException(status_code=400, detail=result.get("message"))
+                
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ update_document error: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -789,19 +1028,32 @@ async def root():
     logger.debug("🏠 Root endpoint accessed")
     return {
         "name": "Multi-KB RAG MCP Server",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "description": "Model Context Protocol server for Multi-KB RAG with Hybrid Search",
         "docs_url": "/docs",
-        "tools": [
-            "/tools/create_kb",
-            "/tools/delete_kb",
-            "/tools/list_kbs",
-            "/tools/upload_document",
-            "/tools/search",
-            "/tools/chat",
-            "/tools/clear_history",
-            "/tools/health"
-        ]
+        "tools": {
+            "kb_management": [
+                "/tools/create_kb",
+                "/tools/delete_kb",
+                "/tools/list_kbs"
+            ],
+            "document_management": [
+                "/tools/upload_document",
+                "/tools/list_documents",
+                "/tools/get_document",
+                "/tools/delete_document",
+                "/tools/update_document"
+            ],
+            "search_chat": [
+                "/tools/search",
+                "/tools/chat",
+                "/tools/auto_routing_chat",
+                "/tools/clear_history"
+            ],
+            "admin": [
+                "/tools/health"
+            ]
+        }
     }
 
 

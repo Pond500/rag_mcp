@@ -10,6 +10,7 @@ Combines all components to provide complete RAG functionality:
 from __future__ import annotations
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 import logging
 
 from qdrant_client import QdrantClient
@@ -307,8 +308,17 @@ class RAGService:
             
             # Extract text (handle both Progressive and basic processors)
             extraction_metadata = {}
-            if isinstance(self.doc_processor, ProgressiveDocumentProcessor):
-                # Use progressive extraction with VLM
+            file_ext = Path(filename).suffix.lower()
+            
+            # Progressive processor only works with PDFs
+            # For other file types (txt, md, docx, xlsx), use basic processor
+            use_progressive = (
+                isinstance(self.doc_processor, ProgressiveDocumentProcessor) and 
+                file_ext == '.pdf'
+            )
+            
+            if use_progressive:
+                # Use progressive extraction with VLM (PDF only)
                 target_quality = getattr(self, 'target_quality', 0.70)
                 logger.info(f"🚀 Using Progressive extraction for {filename} (target_quality={target_quality})")
                 result = self.doc_processor.extract_with_smart_routing(
@@ -331,9 +341,16 @@ class RAGService:
                 logger.info("Progressive extraction: %d pages, tier=%s, quality=%.2f, cost=$%.4f",
                           len(pages), result.tier_used, result.quality_score, result.cost)
             else:
-                # Use basic extraction
-                logger.info(f"🔄 Starting basic extraction: {filename} ({len(file_content)} bytes), OCR={self.doc_processor.enable_ocr}")
-                pages = self.doc_processor.extract_text(filename, file_content)
+                # Use basic extraction (for non-PDF files or when progressive is disabled)
+                # If using ProgressiveDocumentProcessor, use its internal fast_processor for non-PDFs
+                if isinstance(self.doc_processor, ProgressiveDocumentProcessor):
+                    basic_processor = self.doc_processor.fast_processor
+                    logger.info(f"🔄 Using basic extraction (non-PDF): {filename}")
+                else:
+                    basic_processor = self.doc_processor
+                    logger.info(f"🔄 Starting basic extraction: {filename} ({len(file_content)} bytes), OCR={basic_processor.enable_ocr}")
+                
+                pages = basic_processor.extract_text(filename, file_content)
                 logger.info("Basic extraction: %d pages from %s", len(pages), filename)
                 
                 # Debug: log first page preview if available
@@ -408,6 +425,306 @@ class RAGService:
                 
         except Exception as e:
             logger.error("Failed to upload document: %s", e)
+            return {
+                "success": False,
+                "message": str(e)
+            }
+    
+    def list_documents(
+        self,
+        kb_name: str,
+        limit: int = 100,
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List all documents in a KB
+        
+        Args:
+            kb_name: Knowledge base name
+            limit: Max number of documents to return
+            offset: Pagination offset
+            
+        Returns:
+            {"success": bool, "documents": [...], "total": int}
+        """
+        try:
+            if not self.collection_mgr.collection_exists(kb_name):
+                return {
+                    "success": False,
+                    "message": f"Knowledge base '{kb_name}' not found",
+                    "documents": [],
+                    "total": 0
+                }
+            
+            collection_name = self.collection_mgr._get_collection_name(kb_name)
+            
+            # Use scroll to get all documents
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            
+            # Get unique filenames
+            all_points, _ = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="_type",
+                            match=MatchValue(value="document")
+                        )
+                    ]
+                ),
+                limit=10000,  # Get all for counting
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            # Group by filename
+            docs_by_file = {}
+            for point in all_points:
+                filename = point.payload.get("filename", "unknown")
+                if filename not in docs_by_file:
+                    docs_by_file[filename] = {
+                        "filename": filename,
+                        "chunks_count": 0,
+                        "upload_date": point.payload.get("upload_date", ""),
+                        "point_ids": [],
+                        "tier_used": point.payload.get("tier_used", "basic"),
+                        "quality_score": point.payload.get("quality_score"),
+                    }
+                docs_by_file[filename]["chunks_count"] += 1
+                docs_by_file[filename]["point_ids"].append(point.id)
+            
+            # Convert to list and apply pagination
+            documents = list(docs_by_file.values())
+            total = len(documents)
+            
+            # Sort by upload_date descending
+            documents.sort(key=lambda x: x.get("upload_date", ""), reverse=True)
+            
+            # Apply pagination
+            paginated = documents[offset:offset + limit]
+            
+            logger.info("Listed %d documents in %s (total: %d)", len(paginated), kb_name, total)
+            
+            return {
+                "success": True,
+                "kb_name": kb_name,
+                "documents": paginated,
+                "total": total,
+                "limit": limit,
+                "offset": offset
+            }
+            
+        except Exception as e:
+            logger.error("Failed to list documents: %s", e)
+            return {
+                "success": False,
+                "message": str(e),
+                "documents": [],
+                "total": 0
+            }
+    
+    def get_document(
+        self,
+        kb_name: str,
+        filename: str,
+        include_chunks: bool = False
+    ) -> Dict[str, Any]:
+        """Get document info and optionally its chunks
+        
+        Args:
+            kb_name: Knowledge base name
+            filename: Document filename
+            include_chunks: Whether to include chunk contents
+            
+        Returns:
+            {"success": bool, "document": {...}, "chunks": [...]}
+        """
+        try:
+            if not self.collection_mgr.collection_exists(kb_name):
+                return {
+                    "success": False,
+                    "message": f"Knowledge base '{kb_name}' not found"
+                }
+            
+            collection_name = self.collection_mgr._get_collection_name(kb_name)
+            
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            
+            # Get all points for this filename
+            points, _ = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="filename",
+                            match=MatchValue(value=filename)
+                        )
+                    ]
+                ),
+                limit=10000,
+                with_payload=True,
+                with_vectors=False
+            )
+            
+            if not points:
+                return {
+                    "success": False,
+                    "message": f"Document '{filename}' not found in KB '{kb_name}'"
+                }
+            
+            # Build document info from first chunk metadata
+            first_point = points[0]
+            document = {
+                "filename": filename,
+                "kb_name": kb_name,
+                "chunks_count": len(points),
+                "upload_date": first_point.payload.get("upload_date", ""),
+                "tier_used": first_point.payload.get("tier_used", "basic"),
+                "quality_score": first_point.payload.get("quality_score"),
+                "extraction_cost": first_point.payload.get("extraction_cost"),
+                "point_ids": [p.id for p in points]
+            }
+            
+            result = {
+                "success": True,
+                "document": document
+            }
+            
+            # Optionally include chunk contents
+            if include_chunks:
+                chunks = []
+                for point in sorted(points, key=lambda x: x.payload.get("chunk_index", 0)):
+                    chunks.append({
+                        "chunk_index": point.payload.get("chunk_index", 0),
+                        "page": point.payload.get("page", 1),
+                        "text": point.payload.get("text", ""),
+                        "point_id": point.id
+                    })
+                result["chunks"] = chunks
+            
+            logger.info("Got document info: %s in %s (%d chunks)", filename, kb_name, len(points))
+            
+            return result
+            
+        except Exception as e:
+            logger.error("Failed to get document: %s", e)
+            return {
+                "success": False,
+                "message": str(e)
+            }
+    
+    def delete_document(
+        self,
+        kb_name: str,
+        filename: str
+    ) -> Dict[str, Any]:
+        """Delete a document from KB
+        
+        Args:
+            kb_name: Knowledge base name
+            filename: Document filename to delete
+            
+        Returns:
+            {"success": bool, "deleted_chunks": int}
+        """
+        try:
+            if not self.collection_mgr.collection_exists(kb_name):
+                return {
+                    "success": False,
+                    "message": f"Knowledge base '{kb_name}' not found"
+                }
+            
+            collection_name = self.collection_mgr._get_collection_name(kb_name)
+            
+            # First, count how many chunks exist for this file
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            
+            points, _ = self._qdrant_client.scroll(
+                collection_name=collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="filename",
+                            match=MatchValue(value=filename)
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=False,
+                with_vectors=False
+            )
+            
+            if not points:
+                return {
+                    "success": False,
+                    "message": f"Document '{filename}' not found in KB '{kb_name}'"
+                }
+            
+            # Delete by filter
+            result = self.vector_store.delete_by_filter(
+                collection_name=collection_name,
+                filter_dict={"filename": filename}
+            )
+            
+            if result["success"]:
+                logger.info("Deleted document: %s from %s", filename, kb_name)
+                return {
+                    "success": True,
+                    "message": f"Document '{filename}' deleted successfully",
+                    "kb_name": kb_name,
+                    "filename": filename
+                }
+            else:
+                return result
+            
+        except Exception as e:
+            logger.error("Failed to delete document: %s", e)
+            return {
+                "success": False,
+                "message": str(e)
+            }
+    
+    def update_document(
+        self,
+        kb_name: str,
+        filename: str,
+        file_content: bytes,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Update (replace) a document in KB
+        
+        Deletes old document and uploads new content.
+        
+        Args:
+            kb_name: Knowledge base name
+            filename: Document filename
+            file_content: New file content
+            metadata: Optional metadata updates
+            
+        Returns:
+            {"success": bool, "chunks_count": int, ...}
+        """
+        try:
+            # Delete existing document
+            delete_result = self.delete_document(kb_name, filename)
+            
+            if not delete_result["success"] and "not found" not in delete_result.get("message", "").lower():
+                return delete_result
+            
+            # Upload new document
+            upload_result = self.upload_document(
+                kb_name=kb_name,
+                filename=filename,
+                file_content=file_content,
+                metadata=metadata
+            )
+            
+            if upload_result["success"]:
+                upload_result["message"] = f"Document '{filename}' updated successfully"
+                
+            return upload_result
+            
+        except Exception as e:
+            logger.error("Failed to update document: %s", e)
             return {
                 "success": False,
                 "message": str(e)

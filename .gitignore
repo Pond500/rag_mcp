@@ -167,4 +167,14 @@ site/
 uploads/
 temp_uploads/
 
+# Data files (keep for production, ignore for git)
 data/
+
+# Cost tracking (keep locally only)
+logs/cost_history.json
+
+# Old/deprecated folders (already removed but prevent re-creation)
+output/
+config/
+utils/
+src/schemas/

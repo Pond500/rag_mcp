@@ -22,7 +22,7 @@ cd "$PROJECT_ROOT"
 
 echo -e "${CYAN}"
 echo "╔════════════════════════════════════════════════╗"
-echo "║    MCP RAG Server v2.0 + ngrok                 ║"
+echo "║    MCP RAG Server v2.1 + ngrok                 ║"
 echo "╚════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -96,14 +96,24 @@ nohup python -B -m uvicorn mcp.server:app --host 0.0.0.0 --port 8000 > logs/mcp_
 SERVER_PID=$!
 echo -e "${GREEN}   ✅ Server PID: $SERVER_PID${NC}"
 
-echo -e "${YELLOW}   ⏳ Waiting for server to start...${NC}"
-sleep 5
+echo -e "${YELLOW}   ⏳ Waiting for server to start (embedding models loading...)${NC}"
+
+# Wait for server with retry (max 60 seconds)
+MAX_WAIT=60
+WAIT_COUNT=0
+while [ $WAIT_COUNT -lt $MAX_WAIT ]; do
+    if curl -s http://localhost:8000/tools/health > /dev/null 2>&1; then
+        echo -e "${GREEN}   ✅ Server is healthy (took ${WAIT_COUNT}s)${NC}"
+        break
+    fi
+    sleep 2
+    WAIT_COUNT=$((WAIT_COUNT + 2))
+    echo -e "${YELLOW}   ⏳ Still waiting... (${WAIT_COUNT}s)${NC}"
+done
 
 # Verify server is running
-if curl -s http://localhost:8000/tools/health > /dev/null 2>&1; then
-    echo -e "${GREEN}   ✅ Server is healthy${NC}"
-else
-    echo -e "${RED}   ❌ Server failed to start!${NC}"
+if ! curl -s http://localhost:8000/tools/health > /dev/null 2>&1; then
+    echo -e "${RED}   ❌ Server failed to start after ${MAX_WAIT}s!${NC}"
     echo -e "${YELLOW}   Check logs: tail -f logs/mcp_server.log${NC}"
     exit 1
 fi
@@ -151,7 +161,7 @@ fi
 # ============================================
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}✅ MCP RAG Server v2.0 is running!${NC}"
+echo -e "${GREEN}✅ MCP RAG Server v2.1 is running!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
@@ -164,21 +174,34 @@ else
     echo ""
     echo -e "${BLUE}📋 Dify Configuration:${NC}"
     echo -e "   Server Name:    ${YELLOW}mcp-rag-v2${NC}"
-    echo -e "   Server Version: ${YELLOW}2.0.0${NC}"
+    echo -e "   Server Version: ${YELLOW}2.1.0${NC}"
     echo -e "   URL:            ${YELLOW}${NGROK_URL}/mcp${NC}"
 fi
 
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${BLUE}📊 MCP Tools Available (8 tools):${NC}"
+echo -e "${BLUE}📊 MCP Tools Available (13 tools):${NC}"
+echo ""
+echo -e "   ${CYAN}KB Management:${NC}"
 echo -e "   ✅ create_kb          - สร้าง Knowledge Base"
 echo -e "   ✅ delete_kb          - ลบ Knowledge Base"
 echo -e "   ✅ list_kbs           - แสดงรายการ KB ทั้งหมด"
+echo ""
+echo -e "   ${CYAN}Document Management:${NC}"
 echo -e "   ✅ upload_document    - อัปโหลดเอกสาร"
+echo -e "   ✅ list_documents     - แสดงรายการเอกสารใน KB"
+echo -e "   ✅ get_document       - ดูรายละเอียดเอกสาร"
+echo -e "   ✅ delete_document    - ลบเอกสาร"
+echo -e "   ✅ update_document    - อัปเดตเอกสาร"
+echo ""
+echo -e "   ${CYAN}Search & Chat:${NC}"
 echo -e "   ✅ search             - ค้นหา (Hybrid Search + Reranking)"
 echo -e "   ✅ chat               - สนทนา (RAG + History)"
+echo -e "   ✅ auto_routing_chat  - สนทนาแบบ Auto-Routing"
 echo -e "   ✅ clear_history      - ล้างประวัติสนทนา"
+echo ""
+echo -e "   ${CYAN}Admin:${NC}"
 echo -e "   ✅ health             - ตรวจสอบสถานะระบบ"
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
