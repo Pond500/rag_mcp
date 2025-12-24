@@ -60,14 +60,20 @@ class RAGService:
         
         # Use ProgressiveDocumentProcessor if OpenRouter is configured, otherwise fallback to basic DocumentProcessor
         if config.openrouter.use_progressive and config.openrouter.api_key:
-            logger.info("Using ProgressiveDocumentProcessor with OpenRouter")
+            logger.info("Using ProgressiveDocumentProcessor with OpenRouter VLM")
             self.doc_processor = ProgressiveDocumentProcessor(
                 openrouter_api_key=config.openrouter.api_key,
-                target_quality=config.openrouter.target_quality
+                enable_fast_tier=True,
+                enable_balanced_tier=False,  # Skip Gemini Free, go straight to Premium
+                enable_premium_tier=True,
+                disable_ocr=True  # Use VLM instead of Tesseract
             )
+            self.target_quality = config.openrouter.target_quality
         else:
-            logger.info("Using basic DocumentProcessor")
-            self.doc_processor = DocumentProcessor(config.document)
+            # Get OCR setting from config.docling (default: True)
+            enable_ocr = getattr(config, 'docling', None) and getattr(config.docling, 'enable_ocr', True)
+            logger.info(f"Using basic DocumentProcessor (OCR: {'ON' if enable_ocr else 'OFF'})")
+            self.doc_processor = DocumentProcessor(config.document, enable_ocr=enable_ocr)
         
         self.metadata_extractor = MetadataExtractor(llm_client, config.chat.system_prompt)
         self.vector_store = VectorStore(qdrant_client, embedding_manager)
@@ -302,10 +308,12 @@ class RAGService:
             # Extract text (handle both Progressive and basic processors)
             extraction_metadata = {}
             if isinstance(self.doc_processor, ProgressiveDocumentProcessor):
-                # Use progressive extraction
+                # Use progressive extraction with VLM
+                target_quality = getattr(self, 'target_quality', 0.70)
+                logger.info(f"🚀 Using Progressive extraction for {filename} (target_quality={target_quality})")
                 result = self.doc_processor.extract_with_smart_routing(
                     pdf_bytes=file_content,
-                    target_quality=self.config.openrouter.target_quality
+                    target_quality=target_quality
                 )
                 if not result.success:
                     return {
@@ -324,10 +332,18 @@ class RAGService:
                           len(pages), result.tier_used, result.quality_score, result.cost)
             else:
                 # Use basic extraction
+                logger.info(f"🔄 Starting basic extraction: {filename} ({len(file_content)} bytes), OCR={self.doc_processor.enable_ocr}")
                 pages = self.doc_processor.extract_text(filename, file_content)
                 logger.info("Basic extraction: %d pages from %s", len(pages), filename)
+                
+                # Debug: log first page preview if available
+                if pages:
+                    logger.info(f"📄 First page preview (100 chars): {pages[0][:100]}")
+                else:
+                    logger.error(f"❌ Extraction returned empty pages! File: {filename}")
             
             if not pages:
+                logger.error(f"❌ No pages extracted from {filename}. Enable OCR if this is an image-based PDF.")
                 return {
                     "success": False,
                     "message": "Failed to extract text from document"

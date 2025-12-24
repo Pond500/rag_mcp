@@ -477,11 +477,11 @@ class DocumentProcessor:
         try:
             converter = self._get_converter()
             
-            # Docling requires either file path or BytesIO stream
+            # Docling requires either file path or DocumentStream
             if file_content:
-                # Create a temporary BytesIO object with proper name
-                stream = BytesIO(file_content)
-                stream.name = Path(file_path).name  # Docling uses this for format detection
+                # Use DocumentStream for bytes input (Docling 2.x API)
+                from docling.datamodel.document import DocumentStream
+                stream = DocumentStream(name=Path(file_path).name, stream=BytesIO(file_content))
                 result = converter.convert(stream)
             else:
                 result = converter.convert(file_path)

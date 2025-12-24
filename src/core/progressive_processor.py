@@ -208,3 +208,41 @@ class ProgressiveDocumentProcessor:
         
         quality_report = self.quality_checker.check_quality(pages)
         return pages, quality_report
+
+    def chunk_text(self, pages: List[str], chunk_size: int = 1000, overlap: int = 200) -> List[dict]:
+        """Chunk text using the underlying DocumentProcessor
+        
+        Args:
+            pages: List of extracted text pages
+            chunk_size: Characters per chunk
+            overlap: Overlap between chunks
+            
+        Returns:
+            List of chunk dictionaries with text, page, and chunk_index
+        """
+        if self.fast_processor:
+            return self.fast_processor.chunk_text(pages, chunk_size, overlap)
+        else:
+            # Fallback: create simple chunks
+            chunks = []
+            chunk_index = 0
+            for page_num, page_text in enumerate(pages, 1):
+                if len(page_text) <= chunk_size:
+                    chunks.append({
+                        "text": page_text,
+                        "page": page_num,
+                        "chunk_index": chunk_index
+                    })
+                    chunk_index += 1
+                else:
+                    # Split large pages
+                    for i in range(0, len(page_text), chunk_size - overlap):
+                        chunk = page_text[i:i + chunk_size]
+                        if chunk.strip():
+                            chunks.append({
+                                "text": chunk,
+                                "page": page_num,
+                                "chunk_index": chunk_index
+                            })
+                            chunk_index += 1
+            return chunks
