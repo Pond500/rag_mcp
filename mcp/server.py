@@ -875,6 +875,23 @@ async def search(request: SearchRequest):
                       rerank=request.use_reranking,
                       dedup=request.deduplicate):
         try:
+            # Get MCP tracer for observability
+            mcp_tracer = get_mcp_tool_tracer()
+            
+            # Start tracing
+            start_time = time.time()
+            trace_context = mcp_tracer.start_tool_trace(
+                tool_name="search",
+                arguments={
+                    "query": request.query,
+                    "kb_name": request.kb_name,
+                    "top_k": request.top_k,
+                    "use_reranking": request.use_reranking,
+                    "include_metadata": request.include_metadata,
+                    "deduplicate": request.deduplicate
+                }
+            )
+            
             service = get_service()
             result = service.search(
                 query=request.query,
@@ -884,6 +901,10 @@ async def search(request: SearchRequest):
                 include_metadata=request.include_metadata,
                 deduplicate=request.deduplicate
             )
+            
+            # End tracing
+            duration = time.time() - start_time
+            mcp_tracer.end_tool_trace(trace_context, result, None, duration)
             
             if result["success"]:
                 results_count = result.get("total_results", 0)
@@ -897,6 +918,10 @@ async def search(request: SearchRequest):
         except HTTPException:
             raise
         except Exception as e:
+            # End tracing with error
+            if 'trace_context' in locals():
+                duration = time.time() - start_time
+                mcp_tracer.end_tool_trace(trace_context, None, str(e), duration)
             logger.error(f"❌ search error: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -910,6 +935,23 @@ async def chat(request: ChatRequest):
     """
     with LoggerContext(logger, "CHAT", query=request.query[:50], kb_name=request.kb_name, session_id=request.session_id):
         try:
+            # Get MCP tracer for observability
+            mcp_tracer = get_mcp_tool_tracer()
+            
+            # Start tracing
+            start_time = time.time()
+            trace_context = mcp_tracer.start_tool_trace(
+                tool_name="chat",
+                arguments={
+                    "query": request.query,
+                    "kb_name": request.kb_name,
+                    "session_id": request.session_id,
+                    "top_k": request.top_k,
+                    "use_routing": request.use_routing,
+                    "use_reranking": request.use_reranking
+                }
+            )
+            
             service = get_service()
             result = service.chat(
                 query=request.query,
@@ -919,6 +961,10 @@ async def chat(request: ChatRequest):
                 use_routing=request.use_routing,
                 use_reranking=request.use_reranking
             )
+            
+            # End tracing
+            duration = time.time() - start_time
+            mcp_tracer.end_tool_trace(trace_context, result, None, duration)
             
             if result["success"]:
                 kb_name = result.get("kb_name", "N/A")
@@ -932,6 +978,10 @@ async def chat(request: ChatRequest):
         except HTTPException:
             raise
         except Exception as e:
+            # End tracing with error
+            if 'trace_context' in locals():
+                duration = time.time() - start_time
+                mcp_tracer.end_tool_trace(trace_context, None, str(e), duration)
             logger.error(f"❌ chat error: {str(e)}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e))
 

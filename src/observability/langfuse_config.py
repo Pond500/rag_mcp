@@ -13,8 +13,8 @@ from typing import Optional, Tuple
 class LangfuseConfig:
     """Configuration สำหรับเชื่อมต่อ Langfuse Self-Hosted"""
     
-    # Langfuse Server URL
-    host: str = os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+    # Langfuse Server URL (รองรับทั้ง LANGFUSE_HOST และ LANGFUSE_BASE_URL)
+    host: str = os.getenv("LANGFUSE_HOST") or os.getenv("LANGFUSE_BASE_URL", "http://localhost:3000")
     
     # API Keys (ได้จาก Langfuse Dashboard → Settings → API Keys)
     public_key: str = os.getenv("LANGFUSE_PUBLIC_KEY", "")

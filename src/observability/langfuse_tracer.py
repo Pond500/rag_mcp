@@ -7,7 +7,7 @@ Compatible with Langfuse v3.x
 
 import logging
 from typing import Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import uuid
 
@@ -204,6 +204,7 @@ class LangfuseMCPToolTracer(MCPToolTracer):
     def __init__(self):
         super().__init__()
         self._current_traces: Dict[str, Any] = {}
+        self._active_generations: Dict[str, Any] = {}  # Store active generation objects
     
     @property
     def langfuse(self):
@@ -226,6 +227,17 @@ class LangfuseMCPToolTracer(MCPToolTracer):
             "tool_name": tool_name,
             "arguments": self._filter_sensitive_args(arguments),
         }
+        
+        # Start Langfuse generation immediately if available
+        if self.is_available:
+            try:
+                generation = self.langfuse.start_generation(
+                    name=f"mcp_tool:{tool_name}",
+                    input=self._filter_sensitive_args(arguments),
+                )
+                self._active_generations[request_id] = generation
+            except Exception as e:
+                logger.warning(f"Failed to start generation: {e}")
         
         return ToolTraceContext(
             request_id=request_id,
@@ -416,6 +428,9 @@ class LangfuseMCPToolTracer(MCPToolTracer):
             llm_tools = ["chat", "auto_routing_chat"]
             vlm_tools = ["upload_document", "update_document"]
             
+            # Get the active generation created in start_tool_trace()
+            generation = self._active_generations.pop(context.request_id, None)
+            
             if context.tool_name in llm_tools:
                 # Use generation observation with proper usage tracking
                 try:
@@ -428,22 +443,36 @@ class LangfuseMCPToolTracer(MCPToolTracer):
                     if input_tokens > 0 or output_tokens > 0:
                         usage_details["total"] = input_tokens + output_tokens
                     
-                    # Create generation observation
-                    with self.langfuse.start_as_current_observation(
-                        as_type="generation",
-                        name=f"mcp_tool:{context.tool_name}",
-                        model=model_name,
-                        input=trace_data.get("arguments"),
-                        output=output,
-                        metadata=metadata,
-                        usage_details=usage_details if usage_details else None,
-                        level="ERROR" if error else "DEFAULT",
-                    ) as generation:
-                        # Generation is auto-ended by context manager
-                        pass
+                    if generation:
+                        # Update existing generation with model, output, and usage
+                        generation.update(
+                            model=model_name,
+                            output=output,
+                            usage_details=usage_details if usage_details else None,
+                            metadata=metadata,
+                            level="ERROR" if error else "DEFAULT",
+                        )
+                        
+                        # End generation (latency will be calculated automatically)
+                        generation.end()
+                    else:
+                        # Fallback: create event if generation wasn't started
+                        self.langfuse.create_event(
+                            name=f"mcp_tool:{context.tool_name}",
+                            input=trace_data.get("arguments"),
+                            output=output,
+                            metadata={**metadata, "model": model_name},
+                            level="ERROR" if error else "DEFAULT",
+                        )
                         
                 except Exception as gen_error:
                     logger.warning(f"Generation tracking failed: {gen_error}, falling back to event")
+                    # Try to end generation if it exists
+                    if generation:
+                        try:
+                            generation.end()
+                        except:
+                            pass
                     # Fallback to event
                     self.langfuse.create_event(
                         name=f"mcp_tool:{context.tool_name}",
@@ -465,20 +494,37 @@ class LangfuseMCPToolTracer(MCPToolTracer):
                     if vlm_total_cost > 0:
                         cost_details["total"] = vlm_total_cost
                     
-                    with self.langfuse.start_as_current_observation(
-                        as_type="generation",
-                        name=f"mcp_tool:{context.tool_name}",
-                        model=model_name or "gemini-2.0-flash",
-                        input=trace_data.get("arguments"),
-                        output=output,
-                        metadata=metadata,
-                        cost_details=cost_details if cost_details else None,
-                        level="ERROR" if error else "DEFAULT",
-                    ) as generation:
-                        pass
+                    if generation:
+                        # Update existing generation with model, output, and cost
+                        generation.update(
+                            model=model_name or "gemini-2.0-flash",
+                            output=output,
+                            cost_details=cost_details if cost_details else None,
+                            metadata=metadata,
+                            level="ERROR" if error else "DEFAULT",
+                        )
+                        
+                        # End generation (latency calculated automatically)
+                        generation.end()
+                    else:
+                        # Fallback: create event if generation wasn't started
+                        self.langfuse.create_event(
+                            name=f"mcp_tool:{context.tool_name}",
+                            input=trace_data.get("arguments"),
+                            output=output,
+                            metadata={**metadata, "vlm_cost_usd": vlm_cost or 0.0},
+                            level="ERROR" if error else "DEFAULT",
+                        )
                         
                 except Exception as gen_error:
                     logger.warning(f"VLM generation tracking failed: {gen_error}")
+                    # Try to end generation if it exists
+                    if generation:
+                        try:
+                            generation.end()
+                        except:
+                            pass
+                    # Fallback to event
                     self.langfuse.create_event(
                         name=f"mcp_tool:{context.tool_name}",
                         input=trace_data.get("arguments"),
@@ -487,14 +533,23 @@ class LangfuseMCPToolTracer(MCPToolTracer):
                         level="ERROR" if error else "DEFAULT",
                     )
             else:
-                # Create event for non-LLM tools
-                self.langfuse.create_event(
-                    name=f"mcp_tool:{context.tool_name}",
-                    input=trace_data.get("arguments"),
-                    output=output,
-                    metadata=metadata,
-                    level="ERROR" if error else "DEFAULT",
-                )
+                # For non-LLM/VLM tools, end the generation with output only
+                if generation:
+                    generation.update(
+                        output=output,
+                        metadata=metadata,
+                        level="ERROR" if error else "DEFAULT",
+                    )
+                    generation.end()
+                else:
+                    # Fallback: create event
+                    self.langfuse.create_event(
+                        name=f"mcp_tool:{context.tool_name}",
+                        input=trace_data.get("arguments"),
+                        output=output,
+                        metadata=metadata,
+                        level="ERROR" if error else "DEFAULT",
+                    )
             
             # Flush to send immediately
             self.langfuse.flush()
