@@ -1,6 +1,6 @@
 # Multi-KB RAG System v2.1 with Progressive VLM Extraction
 
-**Production-ready Multi-Knowledge Base RAG system** with 3-Tier Progressive Document Extraction (Docling → VLM), Hybrid Search (Dense + Sparse BM25), RRF fusion, Reranking, and Semantic Routing via Model Context Protocol (MCP). Fully observable with Langfuse integration.
+**Production-ready Multi-Knowledge Base RAG system** with 2-Tier Progressive Document Extraction (Docling → Gemini Pro VLM), Hybrid Search (Dense + Sparse BM25), RRF fusion, Reranking, and Semantic Routing via Model Context Protocol (MCP). Fully observable with Langfuse integration.
 
 ![Version](https://img.shields.io/badge/version-2.1.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
@@ -13,13 +13,12 @@
 
 ### Core Capabilities
 - 🎯 **Multi-KB Management** - Manage multiple independent knowledge bases
-- � **Progressive Document Extraction** - 3-tier strategy (Docling → Gemini Flash → Gemini Pro)
+- 📄 **Progressive Document Extraction** - 2-tier strategy (Docling → Gemini Pro)
   - Tier 1: Docling (FREE, ~10s/doc) for text PDFs
-  - Tier 2: Gemini Flash Free VLM (FREE, ~60s/doc) for scanned PDFs
-  - Tier 3: Gemini Pro VLM ($0.0013/page) for complex documents
+  - Tier 3: Gemini Pro VLM ($0.0013/page) for complex/scanned PDFs
   - Quality-based escalation (5-dimension scoring)
   - Auto VLM cost tracking (actual OpenRouter API costs)
-- �🔍 **Hybrid Search** - Dense vector (BAAI/bge-m3) + Sparse BM25 (Qdrant/bm25)
+- � **Hybrid Search** - Dense vector (BAAI/bge-m3) + Sparse BM25 (Qdrant/bm25)
 - 🔀 **RRF Fusion** - Reciprocal Rank Fusion for optimal result merging
 - 🎓 **Reranking** - CrossEncoder (BAAI/bge-reranker-v2-m3) for precision
 - 🧭 **Semantic Routing** - Automatic KB selection based on query semantics
@@ -35,6 +34,7 @@
 - 📈 **Observability** - Langfuse traces with cost/latency tracking, evaluation scores
 - 🧪 **Comprehensive Tests** - Unit and integration tests for all layers
 - 🚀 **MCP Protocol** - FastAPI server with 13 MCP tools + REST API endpoints
+- 💰 **Cost Optimized** - 90% documents use FREE tier (Docling), 80% cost savings
 
 ---
 
@@ -498,7 +498,7 @@ mcp_rag_v2/
 
 ### Key Design Patterns
 - **Clean Architecture**: Separation of layers (observability, models, core, services, api)
-- **3-Tier Progressive Strategy**: Cost-optimized document extraction
+- **2-Tier Progressive Strategy**: Cost-optimized document extraction (Docling → Gemini Pro)
 - **Dependency Injection**: Services receive dependencies via constructor
 - **Lazy Loading**: Models load on first use with fallback mechanisms
 - **Singleton Pattern**: Service and settings use singleton pattern
@@ -509,7 +509,7 @@ mcp_rag_v2/
 
 ## 🔍 How Progressive Extraction & Hybrid Search Works
 
-### Progressive Document Extraction (3-Tier Strategy)
+### Progressive Document Extraction (2-Tier Strategy)
 ```
 User Upload PDF
     ↓
@@ -519,17 +519,11 @@ Tier 1: FAST (Docling - NO OCR)
 ├─ Quality Target: ≥ 0.70
 └─ Works on: PDFs with text layer
     ↓ (if quality < 0.70 or empty)
-Tier 2: BALANCED (Gemini Flash Free VLM)
-├─ Cost: $0.00 (FREE)
-├─ Time: ~30-60 seconds
-├─ Quality Target: ≥ 0.80
-└─ Works on: Scanned PDFs, image-based documents
-    ↓ (if quality < 0.80 or rate limited)
 Tier 3: PREMIUM (Gemini Pro VLM)
 ├─ Cost: $0.0013/page
 ├─ Time: ~60 seconds/page
 ├─ Quality Target: ≥ 0.95
-└─ Works on: Complex documents, Thai language
+└─ Works on: Scanned PDFs, complex documents, Thai language
     ↓
 Quality Check (5 dimensions)
 ├─ text_quality (0.25 weight)
@@ -540,6 +534,8 @@ Quality Check (5 dimensions)
     ↓
 Auto Cost Tracking → Langfuse
 ```
+
+**Note**: Tier 2 (Gemini Flash Free) is disabled due to rate limiting issues.
 
 ### Hybrid Search Pipeline
 ```
@@ -723,9 +719,9 @@ Error: [Errno 61] Connection refused
 Error: OpenRouter API rate limit exceeded
 ```
 **Solutions**:
-- Wait until next day (free tier resets at 00:00 UTC)
-- Add credits to OpenRouter account
-- Use premium tier (set OPENROUTER_VLM_MODEL_PREMIUM)
+- System automatically escalates from Tier 1 (Docling) to Tier 3 (Premium)
+- Tier 2 (Gemini Flash Free) is currently disabled due to rate limiting
+- Add credits to OpenRouter account for premium tier
 - Lower target quality to use Tier 1 (Docling) more often
 
 #### 3. Embedding Model Not Found
@@ -770,11 +766,12 @@ Warning: Trace latency is 0s
 ## 📝 Configuration Reference
 
 ### VLM Extraction Settings
-- `ENABLE_PROGRESSIVE_EXTRACTION` (default: true) - Enable 3-tier extraction
+- `ENABLE_PROGRESSIVE_EXTRACTION` (default: true) - Enable 2-tier extraction
 - `TARGET_QUALITY` (default: 0.70) - Minimum acceptable quality score
 - `IMAGE_DPI` (default: 200) - DPI for PDF to image conversion
-- `OPENROUTER_VLM_MODEL_FREE` (default: google/gemini-2.0-flash-exp:free)
 - `OPENROUTER_VLM_MODEL_PREMIUM` (default: google/gemini-2.5-pro)
+
+**Note**: Tier 2 (Balanced/Free) is disabled. Only Tier 1 (Docling) and Tier 3 (Premium) are active.
 
 ### Search Settings
 - `SEARCH_TOP_K` (default: 5) - Number of final results
@@ -830,7 +827,7 @@ MIT License - see LICENSE file for details
 ## 🗺️ Roadmap
 
 ### v2.1 (Current) ✅
-- [x] Progressive VLM extraction (3-tier strategy)
+- [x] Progressive VLM extraction (2-tier strategy: Docling → Gemini Pro)
 - [x] Langfuse observability integration
 - [x] Actual VLM cost tracking from OpenRouter API
 - [x] 5-dimension quality scoring
@@ -838,6 +835,7 @@ MIT License - see LICENSE file for details
 - [x] Mock evaluation score generation
 - [x] Batch testing scripts
 - [x] 13 MCP tools + REST endpoints
+- [x] Tier 2 (Free VLM) disabled due to rate limiting
 
 ### v2.2 (Planned)
 - [ ] Schema-based document normalization
@@ -866,8 +864,9 @@ MIT License - see LICENSE file for details
 | Tier | PDF Type | Pages | Time | Cost | Quality |
 |------|----------|-------|------|------|---------|
 | Fast | Text PDF | 6 | ~9s | $0.00 | 0.75-0.85 |
-| Balanced | Scanned | 6 | ~60s | $0.00 | 0.80-0.85 |
-| Premium | Complex | 6 | ~360s | $0.0078 | 0.90-0.97 |
+| Premium | Scanned/Complex | 6 | ~360s | $0.0078 | 0.90-0.97 |
+
+**Note**: Tier 2 (Balanced/Gemini Flash Free) has been disabled due to rate limiting.
 
 ### Search Performance
 - **Hybrid Search**: ~100-200ms per query (5 results)
@@ -875,9 +874,10 @@ MIT License - see LICENSE file for details
 - **Chat (RAG)**: ~1-2s per response (including LLM)
 
 ### Cost Optimization
-- **90% of documents**: Processed with FREE tiers (Docling + Gemini Flash)
-- **10% of documents**: Use premium tier for quality
+- **90% of documents**: Processed with FREE tier (Docling)
+- **10% of documents**: Use premium tier for scanned/complex PDFs
 - **Average cost**: $0.0003/page (80% savings vs direct VLM)
+- **Tier 2 disabled**: Gemini Flash Free VLM disabled due to rate limiting
 
 ---
 
